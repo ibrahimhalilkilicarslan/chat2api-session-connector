@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/chromedp/cdproto/page"
 	"github.com/chromedp/chromedp"
 	"github.com/ibrahimhalilkilicarslan/chat2api-session-connector/internal/diagnostic"
 )
@@ -123,11 +124,18 @@ func CaptureToken(ctx context.Context, installed Installed) (string, error) {
 		cancelAllocator()
 	}()
 
-	if err := chromedp.Run(browserContext, chromedp.Navigate(deepSeekURL)); err != nil {
+	if err := chromedp.Run(browserContext); err != nil {
 		return "", diagnostic.New(
 			"BROWSER_LAUNCH_FAILED",
 			"DeepSeek giriş penceresi açılamadı.",
 			installed.Name+" kurulumunu ve güvenlik yazılımı engellerini kontrol edip yeniden deneyin. Sorun sürerse connector doctor komutunu çalıştırın.",
+		)
+	}
+	if err := openDeepSeek(browserContext); err != nil {
+		return "", diagnostic.New(
+			"BROWSER_CONTROL_FAILED",
+			"DeepSeek giriş penceresi hazırlanamadı.",
+			"Connector'ı kapatıp yeni bir bağlantı başlatın. Sorun sürerse BROWSER_CONTROL_FAILED kodunu paylaşın.",
 		)
 	}
 
@@ -158,6 +166,27 @@ func CaptureToken(ctx context.Context, installed Installed) (string, error) {
 			}
 		}
 	}
+}
+
+func openDeepSeek(ctx context.Context) error {
+	var lastError error
+	for attempt := 0; attempt < 3; attempt++ {
+		// Login redirects may replace the first document; sending the CDP command
+		// directly avoids treating that transient page-load abort as browser death.
+		err := chromedp.Run(ctx, chromedp.ActionFunc(func(actionContext context.Context) error {
+			_, _, _, _, commandError := page.Navigate(deepSeekURL).Do(actionContext)
+			return commandError
+		}))
+		if err == nil {
+			return nil
+		}
+		lastError = err
+		if ctx.Err() != nil {
+			return err
+		}
+		time.Sleep(time.Duration(attempt+1) * 200 * time.Millisecond)
+	}
+	return lastError
 }
 
 func launchOptions(installed Installed, profileDir string) []chromedp.ExecAllocatorOption {
