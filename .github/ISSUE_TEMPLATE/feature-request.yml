@@ -1,0 +1,32 @@
+name: Feature request
+description: Propose a focused cross-platform or usability improvement.
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+    validations:
+      required: true
+  - type: textarea
+    id: security
+    attributes:
+      label: Security and privacy impact
+      description: Address browser profiles, storage access, token handling, local HTTP, and gateway submission.
+    validations:
+      required: true
+  - type: textarea
+    id: platforms
+    attributes:
+      label: Platform impact
+      description: Explain Windows, macOS, and Linux behavior.
+    validations:
+      required: true

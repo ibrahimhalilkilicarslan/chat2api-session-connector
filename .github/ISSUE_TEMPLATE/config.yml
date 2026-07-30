@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/ibrahimhalilkilicarslan/chat2api-session-connector/security/advisories/new
+    about: Report token handling, endpoint validation, browser isolation, or local interface vulnerabilities privately.
+  - name: Chat2API gateway
+    url: https://github.com/ibrahimhalilkilicarslan/chat2api-web-gateway/issues
+    about: Report gateway API, admin console, account routing, or deployment issues in the gateway repository.
