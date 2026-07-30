@@ -114,18 +114,7 @@ func CaptureToken(ctx context.Context, installed Installed) (string, error) {
 	}
 	defer removeProfile(profileDir)
 
-	options := append(
-		chromedp.DefaultExecAllocatorOptions[:],
-		chromedp.ExecPath(installed.Path),
-		chromedp.UserDataDir(profileDir),
-		chromedp.Flag("headless", false),
-		chromedp.Flag("disable-extensions", true),
-		chromedp.Flag("no-first-run", true),
-		chromedp.Flag("no-default-browser-check", true),
-		chromedp.Flag("remote-debugging-address", "127.0.0.1"),
-		chromedp.Flag("remote-debugging-port", 0),
-		chromedp.Flag("window-size", "1180,820"),
-	)
+	options := launchOptions(installed, profileDir)
 	allocatorContext, cancelAllocator := chromedp.NewExecAllocator(ctx, options...)
 	browserContext, cancelBrowser := chromedp.NewContext(allocatorContext)
 
@@ -169,6 +158,24 @@ func CaptureToken(ctx context.Context, installed Installed) (string, error) {
 			}
 		}
 	}
+}
+
+func launchOptions(installed Installed, profileDir string) []chromedp.ExecAllocatorOption {
+	options := append(
+		[]chromedp.ExecAllocatorOption{},
+		chromedp.DefaultExecAllocatorOptions[:]...,
+	)
+	return append(
+		options,
+		chromedp.ExecPath(installed.Path),
+		chromedp.UserDataDir(profileDir),
+		chromedp.Flag("headless", false),
+		chromedp.Flag("disable-extensions", true),
+		chromedp.Flag("no-first-run", true),
+		chromedp.Flag("no-default-browser-check", true),
+		chromedp.Flag("remote-debugging-address", "127.0.0.1"),
+		chromedp.WindowSize(1180, 820),
+	)
 }
 
 func readToken(ctx context.Context) (string, error) {
