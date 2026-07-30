@@ -111,6 +111,32 @@ const pageHTML = `<!doctype html>
       color: #f5d59e; background: rgba(255, 196, 105, .06);
       font-size: 11px; line-height: 1.55;
     }
+    .install-success { text-align: center; }
+    .success-mark {
+      width: 58px; height: 58px; display: grid; place-items: center; margin: 0 auto 17px;
+      border: 1px solid rgba(68, 215, 170, .35); border-radius: 18px;
+      color: #04110d; background: linear-gradient(145deg, var(--accent-2), var(--accent));
+      font-size: 27px; font-weight: 900; box-shadow: 0 16px 38px rgba(68, 215, 170, .14);
+    }
+    .install-success h2 { margin: 0; font-size: 22px; letter-spacing: -.025em; }
+    .install-success > p { max-width: 510px; margin: 10px auto 0; color: var(--muted); font-size: 13px; line-height: 1.65; }
+    .guide {
+      margin: 23px 0 0; padding: 0; display: grid; gap: 9px;
+      list-style: none; text-align: left; counter-reset: guide;
+    }
+    .guide li {
+      min-height: 52px; display: flex; align-items: center; gap: 12px; padding: 11px 13px;
+      border: 1px solid var(--line); border-radius: 13px; background: rgba(4, 12, 10, .42);
+      color: var(--muted); font-size: 12px; line-height: 1.45; counter-increment: guide;
+    }
+    .guide li::before {
+      content: counter(guide); width: 28px; height: 28px; display: grid; place-items: center; flex: 0 0 auto;
+      border: 1px solid rgba(68, 215, 170, .3); border-radius: 9px; color: var(--accent);
+      background: rgba(68, 215, 170, .07); font-weight: 850;
+    }
+    .guide strong { color: var(--text); }
+    .install-actions { justify-content: center; margin-top: 18px; }
+    .version { display: block; margin-top: 15px; color: #617a72; font-size: 10px; }
     [hidden] { display: none !important; }
     @keyframes pulse { 50% { opacity: .35; transform: scale(.72); } }
     @media (max-width: 620px) {
@@ -129,54 +155,77 @@ const pageHTML = `<!doctype html>
     <section class="card">
       <div class="hero">
         <div class="eyebrow">Yerel ve güvenli bağlantı</div>
+        {{if .InstallationReady}}
+        <h1>Connector kullanıma hazır</h1>
+        <p>Kurulum tamamlandı. Hesap bağlantısını Chat2API panelinden başlattığınızda connector gerekli adımları otomatik olarak açacak.</p>
+        {{else}}
         <h1>DeepSeek hesabınızı bağlayın</h1>
         <p>Giriş doğrudan DeepSeek üzerinde tamamlanır. Connector parola veya doğrulama kodunuzu görmez; yalnız doğrulanmış oturum bilgisini seçtiğiniz Chat2API gateway’ine iletir.</p>
+        {{end}}
       </div>
       <div class="content">
         {{if .Notice}}<div class="notice">{{.Notice}}</div>{{end}}
-        <div class="steps">
-          <div class="step active" id="step-code"><i>1</i><span>Kod</span></div><b></b>
-          <div class="step" id="step-confirm"><i>2</i><span>Onay</span></div><b></b>
-          <div class="step" id="step-login"><i>3</i><span>Giriş</span></div><b></b>
-          <div class="step" id="step-done"><i>4</i><span>Tamam</span></div>
-        </div>
-
-        <section id="code-view">
-          <label for="code">Tek kullanımlık bağlantı kodu</label>
-          <textarea id="code" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="c2a-ds-native-v1..."></textarea>
-          <div class="field-actions">
-            <button id="inspect" type="button">Kodu doğrula</button>
-            <button id="paste" type="button" class="secondary">Panodan yapıştır</button>
+        <section class="install-success" id="install-view" {{if .InstallationReady}}{{else}}hidden{{end}}>
+          <div class="success-mark" aria-hidden="true">✓</div>
+          <h2>Kurulum tamamlandı</h2>
+          <p>Bu uygulamada kod aramanıza gerek yok. Bağlantı işlemini Chat2API yönetim panelinden başlatın.</p>
+          <ol class="guide">
+            <li><span><strong>Chat2API paneline dönün.</strong> Açık connector sekmesini kapatabilirsiniz.</span></li>
+            <li><span><strong>DeepSeek hesabı ekle</strong> alanından “Connector ile bağlan” seçeneğini kullanın.</span></li>
+            <li><span>Açılan güvenli DeepSeek penceresinde girişinizi tamamlayın. Oturum otomatik olarak hesabınıza bağlanır.</span></li>
+          </ol>
+          <div class="actions install-actions">
+            <button id="finish-install" type="button">Tamam, Chat2API’ye dön</button>
+            <button id="manual-code" type="button" class="secondary">Manuel bağlantı kodum var</button>
           </div>
+          {{if .Version}}<small class="version">Connector {{.Version}}</small>{{end}}
         </section>
 
-        <section id="confirm-view" hidden>
-          <div class="preview">
-            <small>Oturumun gönderileceği gateway</small>
-            <div class="host" id="gateway-host"></div>
-            <small id="expiry"></small>
+        <div id="connection-flow" {{if .InstallationReady}}hidden{{end}}>
+          <div class="steps">
+            <div class="step active" id="step-code"><i>1</i><span>Kod</span></div><b></b>
+            <div class="step" id="step-confirm"><i>2</i><span>Onay</span></div><b></b>
+            <div class="step" id="step-login"><i>3</i><span>Giriş</span></div><b></b>
+            <div class="step" id="step-done"><i>4</i><span>Tamam</span></div>
           </div>
-          <div class="actions">
-            <button id="connect" type="button">DeepSeek’i aç ve bağla</button>
-            <button id="back" type="button" class="secondary">Kodu değiştir</button>
-          </div>
-        </section>
 
-        <section id="status-view" hidden>
-          <div class="status" id="status-card">
-            <span class="status-dot"></span>
-            <div>
-              <strong id="status-title"></strong>
-              <p id="status-message"></p>
-              <p class="status-hint" id="status-hint" hidden></p>
-              <code class="status-code" id="status-code" hidden></code>
+          <section id="code-view">
+            <label for="code">Tek kullanımlık bağlantı kodu</label>
+            <textarea id="code" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="c2a-ds-native-v1..."></textarea>
+            <div class="field-actions">
+              <button id="inspect" type="button">Kodu doğrula</button>
+              <button id="paste" type="button" class="secondary">Panodan yapıştır</button>
             </div>
-          </div>
-          <div class="actions" id="status-actions">
-            <button id="retry" type="button" class="secondary" hidden>Tekrar dene</button>
-            <button id="close" type="button" class="ghost" hidden>Connector’ı kapat</button>
-          </div>
-        </section>
+          </section>
+
+          <section id="confirm-view" hidden>
+            <div class="preview">
+              <small>Oturumun gönderileceği gateway</small>
+              <div class="host" id="gateway-host"></div>
+              <small id="expiry"></small>
+            </div>
+            <div class="actions">
+              <button id="connect" type="button">DeepSeek’i aç ve bağla</button>
+              <button id="back" type="button" class="secondary">Kodu değiştir</button>
+            </div>
+          </section>
+
+          <section id="status-view" hidden>
+            <div class="status" id="status-card">
+              <span class="status-dot"></span>
+              <div>
+                <strong id="status-title"></strong>
+                <p id="status-message"></p>
+                <p class="status-hint" id="status-hint" hidden></p>
+                <code class="status-code" id="status-code" hidden></code>
+              </div>
+            </div>
+            <div class="actions" id="status-actions">
+              <button id="retry" type="button" class="secondary" hidden>Tekrar dene</button>
+              <button id="close" type="button" class="ghost" hidden>Connector’ı kapat</button>
+            </div>
+          </section>
+        </div>
 
         <p class="privacy">Kişisel tarayıcı profiliniz kullanılmaz. Geçici profil işlem sonunda silinir; token diske veya uygulama loglarına yazılmaz.</p>
       </div>
@@ -184,6 +233,9 @@ const pageHTML = `<!doctype html>
   </main>
   <script nonce="{{.Nonce}}">
     const base = {{.BasePath}};
+    const installView = document.querySelector('#install-view');
+    const connectionFlow = document.querySelector('#connection-flow');
+    const installationReady = !installView.hidden;
     const codeView = document.querySelector('#code-view');
     const confirmView = document.querySelector('#confirm-view');
     const statusView = document.querySelector('#status-view');
@@ -217,7 +269,13 @@ const pageHTML = `<!doctype html>
       });
     };
 
+    const showConnectionFlow = () => {
+      installView.hidden = true;
+      connectionFlow.hidden = false;
+    };
+
     const showError = (message, hint = '', errorCode = '') => {
+      showConnectionFlow();
       codeView.hidden = true;
       confirmView.hidden = true;
       statusView.hidden = false;
@@ -233,6 +291,7 @@ const pageHTML = `<!doctype html>
     };
 
     const showConfirm = (status) => {
+      showConnectionFlow();
       candidateId = status.candidateId;
       document.querySelector('#gateway-host').textContent = status.gatewayHost;
       document.querySelector('#expiry').textContent = new Date(status.expiresAt).toLocaleString();
@@ -241,6 +300,18 @@ const pageHTML = `<!doctype html>
       statusView.hidden = true;
       activateStep(2);
     };
+
+    document.querySelector('#manual-code').addEventListener('click', () => {
+      showConnectionFlow();
+      codeInput.focus();
+    });
+
+    document.querySelector('#finish-install').addEventListener('click', async (event) => {
+      event.currentTarget.disabled = true;
+      event.currentTarget.textContent = 'Chat2API paneline dönebilirsiniz';
+      await post('shutdown').catch(() => undefined);
+      window.close();
+    });
 
     document.querySelector('#paste').addEventListener('click', async () => {
       try {
@@ -362,7 +433,9 @@ const pageHTML = `<!doctype html>
       }
     };
 
-    void hydrate();
+    if (!installationReady) {
+      void hydrate();
+    }
   </script>
 </body>
 </html>`

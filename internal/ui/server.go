@@ -46,9 +46,11 @@ type statusView struct {
 }
 
 type Options struct {
-	InitialPayload *pairing.Payload
-	InitialError   error
-	Notice         string
+	InitialPayload    *pairing.Payload
+	InitialError      error
+	Notice            string
+	InstallationReady bool
+	Version           string
 }
 
 type candidate struct {
@@ -57,19 +59,21 @@ type candidate struct {
 }
 
 type server struct {
-	mu           sync.Mutex
-	status       statusView
-	candidate    *candidate
-	connecting   bool
-	connect      ConnectFunc
-	origin       string
-	host         string
-	basePath     string
-	nonce        string
-	notice       string
-	rootContext  context.Context
-	shutdown     chan struct{}
-	shutdownOnce sync.Once
+	mu                sync.Mutex
+	status            statusView
+	candidate         *candidate
+	connecting        bool
+	connect           ConnectFunc
+	origin            string
+	host              string
+	basePath          string
+	nonce             string
+	notice            string
+	installationReady bool
+	version           string
+	rootContext       context.Context
+	shutdown          chan struct{}
+	shutdownOnce      sync.Once
 }
 
 func Run(ctx context.Context, connect ConnectFunc, openURL OpenURLFunc, options Options) error {
@@ -96,14 +100,16 @@ func Run(ctx context.Context, connect ConnectFunc, openURL OpenURLFunc, options 
 			Phase:   "idle",
 			Message: "Chat2API panelindeki tek kullanımlık bağlantı kodunu girin.",
 		},
-		connect:     connect,
-		origin:      "http://" + listener.Addr().String(),
-		host:        listener.Addr().String(),
-		basePath:    "/session/" + sessionSecret + "/",
-		nonce:       nonce,
-		notice:      options.Notice,
-		rootContext: ctx,
-		shutdown:    make(chan struct{}),
+		connect:           connect,
+		origin:            "http://" + listener.Addr().String(),
+		host:              listener.Addr().String(),
+		basePath:          "/session/" + sessionSecret + "/",
+		nonce:             nonce,
+		notice:            options.Notice,
+		installationReady: options.InstallationReady,
+		version:           options.Version,
+		rootContext:       ctx,
+		shutdown:          make(chan struct{}),
 	}
 	if options.InitialError != nil {
 		errorCode, hint := diagnostic.Details(options.InitialError)
@@ -424,10 +430,18 @@ func (instance *server) securityHeaders(writer http.ResponseWriter) {
 
 func (instance *server) servePage(writer http.ResponseWriter) {
 	writer.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_ = pageTemplate.Execute(writer, map[string]string{
-		"BasePath": instance.basePath,
-		"Nonce":    instance.nonce,
-		"Notice":   instance.notice,
+	_ = pageTemplate.Execute(writer, struct {
+		BasePath          string
+		Nonce             string
+		Notice            string
+		InstallationReady bool
+		Version           string
+	}{
+		BasePath:          instance.basePath,
+		Nonce:             instance.nonce,
+		Notice:            instance.notice,
+		InstallationReady: instance.installationReady,
+		Version:           instance.version,
 	})
 }
 

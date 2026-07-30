@@ -107,6 +107,33 @@ func TestPageUsesNonceCSPAndDoesNotEnableCORS(t *testing.T) {
 	}
 }
 
+func TestStandaloneInstallPageGuidesUserBackToChat2API(t *testing.T) {
+	instance := testServer(t)
+	instance.installationReady = true
+	instance.version = "0.2.0"
+	request := request(t, http.MethodGet, instance.basePath, "")
+	recorder := httptest.NewRecorder()
+	instance.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d", recorder.Code)
+	}
+	body := recorder.Body.String()
+	for _, expected := range []string{
+		"Kurulum tamamlandı",
+		"Chat2API paneline dönün",
+		"Connector ile bağlan",
+		"Manuel bağlantı kodum var",
+		`id="connection-flow" hidden`,
+		"const installationReady = !installView.hidden;",
+		"Connector 0.2.0",
+	} {
+		if !strings.Contains(body, expected) {
+			t.Fatalf("standalone installation page missing %q", expected)
+		}
+	}
+}
+
 func TestRunServesFunctionalLocalStatusEndpoint(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)

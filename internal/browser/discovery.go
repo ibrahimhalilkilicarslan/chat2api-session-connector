@@ -16,11 +16,11 @@ func candidates() []candidate {
 	switch runtime.GOOS {
 	case "windows":
 		return []candidate{
-			{Name: "Microsoft Edge", Path: `%PROGRAMFILES(X86)%\Microsoft\Edge\Application\msedge.exe`},
-			{Name: "Microsoft Edge", Path: `%PROGRAMFILES%\Microsoft\Edge\Application\msedge.exe`},
 			{Name: "Google Chrome", Path: `%PROGRAMFILES%\Google\Chrome\Application\chrome.exe`},
 			{Name: "Google Chrome", Path: `%PROGRAMFILES(X86)%\Google\Chrome\Application\chrome.exe`},
 			{Name: "Google Chrome", Path: `%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe`},
+			{Name: "Microsoft Edge", Path: `%PROGRAMFILES(X86)%\Microsoft\Edge\Application\msedge.exe`},
+			{Name: "Microsoft Edge", Path: `%PROGRAMFILES%\Microsoft\Edge\Application\msedge.exe`},
 			{Name: "Brave", Path: `%PROGRAMFILES%\BraveSoftware\Brave-Browser\Application\brave.exe`},
 			{Name: "Brave", Path: `%LOCALAPPDATA%\BraveSoftware\Brave-Browser\Application\brave.exe`},
 		}

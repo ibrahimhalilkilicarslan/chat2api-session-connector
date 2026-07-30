@@ -41,8 +41,15 @@ On Windows and Linux, the first launch installs a per-user
 with the one-time pairing capability already loaded. The loopback page still
 shows the exact gateway hostname before any provider session is transferred.
 
+Launching the connector directly after installation shows a short completion
+guide and sends the user back to Chat2API instead of asking for a pairing code.
 Manual code entry remains available as a recovery path and is the current
 onboarding method on macOS.
+
+On Windows, the connector prefers the supported browser configured as the
+system default. If that browser is unsupported, it falls back to an installed
+Chrome, Edge, Brave, or Chromium executable without reading the user's regular
+browser profile.
 
 ## Releases
 

@@ -31,7 +31,7 @@ func Find() (Installed, error) {
 		)
 	}
 
-	for _, candidate := range candidates() {
+	for _, candidate := range prioritizeCandidates(candidates(), defaultBrowserPreference()) {
 		path := expand(candidate.Path)
 		if candidate.Lookup {
 			resolved, err := lookupExecutable(path)
@@ -49,6 +49,43 @@ func Find() (Installed, error) {
 		"Desteklenen bir tarayıcı bulunamadı.",
 		"Chrome, Edge, Chromium veya Brave kurun; ardından connector'ı yeniden açın.",
 	)
+}
+
+func prioritizeCandidates(values []candidate, preferredName string) []candidate {
+	preferredName = strings.TrimSpace(preferredName)
+	if preferredName == "" {
+		return values
+	}
+
+	prioritized := make([]candidate, 0, len(values))
+	for _, value := range values {
+		if value.Name == preferredName {
+			prioritized = append(prioritized, value)
+		}
+	}
+	for _, value := range values {
+		if value.Name != preferredName {
+			prioritized = append(prioritized, value)
+		}
+	}
+	return prioritized
+}
+
+func browserNameForProgID(programID string) string {
+	normalized := strings.ToLower(strings.TrimSpace(programID))
+	switch {
+	case strings.Contains(normalized, "chromehtml"):
+		return "Google Chrome"
+	case strings.Contains(normalized, "msedgehtm"),
+		strings.Contains(normalized, "microsoftedge"):
+		return "Microsoft Edge"
+	case strings.Contains(normalized, "bravehtml"):
+		return "Brave"
+	case strings.Contains(normalized, "chromium"):
+		return "Chromium"
+	default:
+		return ""
+	}
 }
 
 func CaptureToken(ctx context.Context, installed Installed) (string, error) {
@@ -101,7 +138,7 @@ func CaptureToken(ctx context.Context, installed Installed) (string, error) {
 		return "", diagnostic.New(
 			"BROWSER_LAUNCH_FAILED",
 			"DeepSeek giriş penceresi açılamadı.",
-			installed.Name+" süreçlerini kapatıp connector'ı yeniden deneyin. Sorun sürerse connector doctor komutunu çalıştırın.",
+			installed.Name+" kurulumunu ve güvenlik yazılımı engellerini kontrol edip yeniden deneyin. Sorun sürerse connector doctor komutunu çalıştırın.",
 		)
 	}
 

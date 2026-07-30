@@ -31,3 +31,35 @@ func TestFindRejectsInvalidExplicitBrowserPath(t *testing.T) {
 		t.Fatal("Find() unexpectedly succeeded")
 	}
 }
+
+func TestBrowserNameForProgID(t *testing.T) {
+	tests := map[string]string{
+		"ChromeHTML":              "Google Chrome",
+		"MSEdgeHTM":               "Microsoft Edge",
+		"MicrosoftEdge.Url.https": "Microsoft Edge",
+		"BraveHTML":               "Brave",
+		"ChromiumHTM":             "Chromium",
+		"FirefoxURL-308046B0AF4A": "",
+	}
+	for programID, expected := range tests {
+		if actual := browserNameForProgID(programID); actual != expected {
+			t.Errorf("browserNameForProgID(%q) = %q, want %q", programID, actual, expected)
+		}
+	}
+}
+
+func TestPrioritizeCandidatesPreservesPreferredBrowserOrder(t *testing.T) {
+	values := []candidate{
+		{Name: "Google Chrome", Path: "chrome-system"},
+		{Name: "Microsoft Edge", Path: "edge-system"},
+		{Name: "Google Chrome", Path: "chrome-user"},
+		{Name: "Brave", Path: "brave-system"},
+	}
+	actual := prioritizeCandidates(values, "Microsoft Edge")
+	expectedPaths := []string{"edge-system", "chrome-system", "chrome-user", "brave-system"}
+	for index, expectedPath := range expectedPaths {
+		if actual[index].Path != expectedPath {
+			t.Fatalf("candidate %d path = %q, want %q", index, actual[index].Path, expectedPath)
+		}
+	}
+}
