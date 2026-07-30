@@ -1,0 +1,119 @@
+package ui
+
+import (
+	"context"
+	"encoding/base64"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/ibrahimhalilkilicarslan/chat2api-session-connector/internal/pairing"
+)
+
+func TestLoopbackUIRequiresExactHostAndOrigin(t *testing.T) {
+	instance := testServer(t)
+	code := testCapability(t)
+
+	untrusted := request(t, http.MethodPost, instance.basePath+"inspect", `{"code":"`+code+`"}`)
+	untrusted.Header.Set("Content-Type", "application/json")
+	untrusted.Header.Set("Origin", "https://untrusted.example")
+	recorder := httptest.NewRecorder()
+	instance.ServeHTTP(recorder, untrusted)
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("status = %d", recorder.Code)
+	}
+
+	wrongHost := request(t, http.MethodGet, instance.basePath, "")
+	wrongHost.Host = "attacker.example"
+	recorder = httptest.NewRecorder()
+	instance.ServeHTTP(recorder, wrongHost)
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("status = %d", recorder.Code)
+	}
+}
+
+func TestInspectReturnsOnlySanitizedCapabilityMetadata(t *testing.T) {
+	instance := testServer(t)
+	code := testCapability(t)
+	request := request(t, http.MethodPost, instance.basePath+"inspect", `{"code":"`+code+`"}`)
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Origin", instance.origin)
+	recorder := httptest.NewRecorder()
+	instance.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d body = %s", recorder.Code, recorder.Body.String())
+	}
+	body := recorder.Body.String()
+	if !strings.Contains(body, `"gatewayHost":"gateway.example.com"`) {
+		t.Fatalf("body = %s", body)
+	}
+	if strings.Contains(body, strings.Repeat("s", 43)) || strings.Contains(body, code) {
+		t.Fatal("inspect response leaked capability material")
+	}
+}
+
+func TestPageUsesNonceCSPAndDoesNotEnableCORS(t *testing.T) {
+	instance := testServer(t)
+	request := request(t, http.MethodGet, instance.basePath, "")
+	recorder := httptest.NewRecorder()
+	instance.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d", recorder.Code)
+	}
+	csp := recorder.Header().Get("Content-Security-Policy")
+	if !strings.Contains(csp, "script-src 'nonce-") || strings.Contains(csp, "unsafe-inline") {
+		t.Fatalf("unexpected CSP: %s", csp)
+	}
+	if recorder.Header().Get("Access-Control-Allow-Origin") != "" {
+		t.Fatal("loopback UI unexpectedly enabled CORS")
+	}
+	if !strings.Contains(recorder.Body.String(), "Chat2API Session Connector") {
+		t.Fatal("connector page missing")
+	}
+}
+
+func testServer(t *testing.T) *server {
+	t.Helper()
+	return &server{
+		status: statusView{Phase: "idle"},
+		connect: func(context.Context, pairing.Payload) (string, error) {
+			return "Test Browser", nil
+		},
+		origin:      "http://127.0.0.1:41883",
+		host:        "127.0.0.1:41883",
+		basePath:    "/session/local-test/",
+		nonce:       "test-nonce",
+		rootContext: context.Background(),
+		shutdown:    make(chan struct{}),
+	}
+}
+
+func request(t *testing.T, method string, path string, body string) *http.Request {
+	t.Helper()
+	request := httptest.NewRequest(method, "http://127.0.0.1:41883"+path, strings.NewReader(body))
+	request.Host = "127.0.0.1:41883"
+	request.RemoteAddr = "127.0.0.1:52341"
+	return request
+}
+
+func testCapability(t *testing.T) string {
+	t.Helper()
+	payload := pairing.Payload{
+		Version:   1,
+		Transport: "native",
+		Endpoint:  "https://gateway.example.com/admin/api/deepseek-link/native-complete",
+		SessionID: "6f3e75fd-e65f-4f6f-95d8-958bc4fdb759",
+		Secret:    strings.Repeat("s", 43),
+		ExpiresAt: time.Now().Add(5 * time.Minute).UnixMilli(),
+	}
+	value, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return pairing.Prefix + base64.RawURLEncoding.EncodeToString(value)
+}

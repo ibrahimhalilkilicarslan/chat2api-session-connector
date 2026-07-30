@@ -1,0 +1,62 @@
+# Security model
+
+## Trust boundaries
+
+The connector handles two short-lived secrets in memory:
+
+1. the one-time gateway pairing capability;
+2. the DeepSeek web session token read after an explicit login.
+
+Neither value is written to disk, command output, application logs, crash
+reports, browser URLs, or the local status page.
+
+## Local interface
+
+The setup server:
+
+- binds to `127.0.0.1` on an operating-system-selected port,
+- uses a 256-bit random path capability,
+- rejects unexpected Host and remote-address values,
+- sends no CORS headers,
+- enforces a strict Content Security Policy,
+- accepts bounded request bodies, and
+- exits after success, explicit shutdown, or idle timeout.
+
+## Browser isolation
+
+The connector never attaches to a running browser or its default profile. It
+starts a supported installed browser with:
+
+- a newly-created temporary `--user-data-dir`,
+- a loopback remote debugging endpoint,
+- no extensions,
+- no default-browser integration, and
+- a hard operation timeout.
+
+Only the exact `https://chat.deepseek.com` origin is eligible for token
+extraction. The profile directory is removed after browser shutdown.
+
+## Gateway submission
+
+Native pairing codes must:
+
+- use the `c2a-ds-native-v1` prefix,
+- expire within ten minutes,
+- contain a UUID session ID and high-entropy secret,
+- target HTTPS, except explicit localhost development,
+- use the fixed `/admin/api/deepseek-link/native-complete` path, and
+- contain no URL credentials, query, or fragment.
+
+The connector shows the exact gateway host before continuing. HTTP redirects
+are rejected so a token cannot be forwarded to another host.
+
+## Residual risks
+
+- DeepSeek can change its login flow or local-storage key.
+- Provider anti-automation controls can reject a dedicated browser profile.
+- Unsigned development binaries can be blocked or warned about by the OS.
+- A compromised local machine can inspect any process or browser session.
+- A user can approve a malicious gateway hostname without reading it.
+
+Code signing, reproducible release builds, checksums, and a dedicated provider
+account are required before broad distribution.
