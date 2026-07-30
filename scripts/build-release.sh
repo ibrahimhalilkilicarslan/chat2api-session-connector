@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-VERSION="${VERSION:-0.1.0}"
+VERSION="${VERSION:-0.2.0}"
 COMMIT="${COMMIT:-$(git -C "${ROOT}" rev-parse --short=12 HEAD 2>/dev/null || printf 'unknown')}"
 DIST="${ROOT}/dist"
 MODULE="github.com/ibrahimhalilkilicarslan/chat2api-session-connector/internal/version"
@@ -26,10 +26,12 @@ package_windows() {
   local work="${DIST}/work/windows-${arch}"
   mkdir -p -- "${work}"
   build_binary windows "${arch}" "${work}/Chat2API-Connector.exe" "-H=windowsgui"
-  cp -- "${ROOT}/LICENSE" "${ROOT}/README.md" "${ROOT}/docs/protocol.md" "${ROOT}/docs/security.md" "${work}/"
+  mkdir -p -- "${work}/docs"
+  cp -- "${ROOT}/LICENSE" "${ROOT}/README.md" "${work}/"
+  cp -- "${ROOT}/docs/protocol.md" "${ROOT}/docs/security.md" "${work}/docs/"
   (
     cd -- "${work}"
-    zip -q -9 "${DIST}/chat2api-session-connector_${VERSION}_windows_${arch}.zip" ./*
+    zip -q -9 -r "${DIST}/chat2api-session-connector_${VERSION}_windows_${arch}.zip" ./*
   )
 }
 
@@ -39,7 +41,9 @@ package_linux() {
   mkdir -p -- "${work}"
   build_binary linux "${arch}" "${work}/chat2api-connector"
   chmod 0755 "${work}/chat2api-connector"
-  cp -- "${ROOT}/LICENSE" "${ROOT}/README.md" "${ROOT}/docs/protocol.md" "${ROOT}/docs/security.md" "${work}/"
+  mkdir -p -- "${work}/docs"
+  cp -- "${ROOT}/LICENSE" "${ROOT}/README.md" "${work}/"
+  cp -- "${ROOT}/docs/protocol.md" "${ROOT}/docs/security.md" "${work}/docs/"
   tar -C "${work}" -czf "${DIST}/chat2api-session-connector_${VERSION}_linux_${arch}.tar.gz" .
 }
 
@@ -69,7 +73,9 @@ package_macos() {
 </dict>
 </plist>
 PLIST
-  cp -- "${ROOT}/LICENSE" "${ROOT}/README.md" "${ROOT}/docs/protocol.md" "${ROOT}/docs/security.md" "${work}/"
+  mkdir -p -- "${work}/docs"
+  cp -- "${ROOT}/LICENSE" "${ROOT}/README.md" "${work}/"
+  cp -- "${ROOT}/docs/protocol.md" "${ROOT}/docs/security.md" "${work}/docs/"
   (
     cd -- "${work}"
     zip -q -9 -r "${DIST}/chat2api-session-connector_${VERSION}_macos_${arch}.zip" .

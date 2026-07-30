@@ -94,7 +94,23 @@ const pageHTML = `<!doctype html>
     .status[data-phase="connecting"] .status-dot { animation: pulse 1.2s infinite; }
     .status strong { display: block; margin-bottom: 4px; font-size: 13px; }
     .status p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
+    .status-hint {
+      margin-top: 10px !important; padding-top: 10px; border-top: 1px solid var(--line);
+      color: var(--text) !important;
+    }
+    .status-code {
+      display: inline-flex; margin-top: 10px; padding: 4px 7px;
+      border: 1px solid var(--line); border-radius: 6px;
+      color: var(--muted); background: rgba(0, 0, 0, .18);
+      font: 10px/1.2 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
     .privacy { margin: 22px 0 0; padding-top: 18px; border-top: 1px solid var(--line); color: #708981; font-size: 11px; line-height: 1.65; }
+    .notice {
+      margin: 0 0 18px; padding: 11px 13px;
+      border: 1px solid rgba(255, 196, 105, .2); border-radius: 11px;
+      color: #f5d59e; background: rgba(255, 196, 105, .06);
+      font-size: 11px; line-height: 1.55;
+    }
     [hidden] { display: none !important; }
     @keyframes pulse { 50% { opacity: .35; transform: scale(.72); } }
     @media (max-width: 620px) {
@@ -117,6 +133,7 @@ const pageHTML = `<!doctype html>
         <p>Giriş doğrudan DeepSeek üzerinde tamamlanır. Connector parola veya doğrulama kodunuzu görmez; yalnız doğrulanmış oturum bilgisini seçtiğiniz Chat2API gateway’ine iletir.</p>
       </div>
       <div class="content">
+        {{if .Notice}}<div class="notice">{{.Notice}}</div>{{end}}
         <div class="steps">
           <div class="step active" id="step-code"><i>1</i><span>Kod</span></div><b></b>
           <div class="step" id="step-confirm"><i>2</i><span>Onay</span></div><b></b>
@@ -148,7 +165,12 @@ const pageHTML = `<!doctype html>
         <section id="status-view" hidden>
           <div class="status" id="status-card">
             <span class="status-dot"></span>
-            <div><strong id="status-title"></strong><p id="status-message"></p></div>
+            <div>
+              <strong id="status-title"></strong>
+              <p id="status-message"></p>
+              <p class="status-hint" id="status-hint" hidden></p>
+              <code class="status-code" id="status-code" hidden></code>
+            </div>
           </div>
           <div class="actions" id="status-actions">
             <button id="retry" type="button" class="secondary" hidden>Tekrar dene</button>
@@ -178,7 +200,12 @@ const pageHTML = `<!doctype html>
         credentials: 'omit'
       });
       const value = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(value?.message || 'İşlem tamamlanamadı.');
+      if (!response.ok) {
+        const error = new Error(value?.message || 'İşlem tamamlanamadı.');
+        error.hint = value?.hint || '';
+        error.errorCode = value?.errorCode || '';
+        throw error;
+      }
       return value;
     };
 
@@ -190,15 +217,29 @@ const pageHTML = `<!doctype html>
       });
     };
 
-    const showError = (message) => {
+    const showError = (message, hint = '', errorCode = '') => {
       codeView.hidden = true;
       confirmView.hidden = true;
       statusView.hidden = false;
       document.querySelector('#status-card').dataset.phase = 'error';
       document.querySelector('#status-title').textContent = 'Bağlantı kurulamadı';
       document.querySelector('#status-message').textContent = message;
+      document.querySelector('#status-hint').textContent = hint;
+      document.querySelector('#status-hint').hidden = !hint;
+      document.querySelector('#status-code').textContent = errorCode;
+      document.querySelector('#status-code').hidden = !errorCode;
       document.querySelector('#retry').hidden = false;
       activateStep(1);
+    };
+
+    const showConfirm = (status) => {
+      candidateId = status.candidateId;
+      document.querySelector('#gateway-host').textContent = status.gatewayHost;
+      document.querySelector('#expiry').textContent = new Date(status.expiresAt).toLocaleString();
+      codeView.hidden = true;
+      confirmView.hidden = false;
+      statusView.hidden = true;
+      activateStep(2);
     };
 
     document.querySelector('#paste').addEventListener('click', async () => {
@@ -213,15 +254,9 @@ const pageHTML = `<!doctype html>
       try {
         const status = await post('inspect', {code: codeInput.value});
         codeInput.value = '';
-        candidateId = status.candidateId;
-        document.querySelector('#gateway-host').textContent = status.gatewayHost;
-        document.querySelector('#expiry').textContent = new Date(status.expiresAt).toLocaleString();
-        codeView.hidden = true;
-        confirmView.hidden = false;
-        statusView.hidden = true;
-        activateStep(2);
+        showConfirm(status);
       } catch (error) {
-        showError(error.message);
+        showError(error.message, error.hint, error.errorCode);
       }
     });
 
@@ -243,10 +278,12 @@ const pageHTML = `<!doctype html>
         document.querySelector('#status-card').dataset.phase = 'connecting';
         document.querySelector('#status-title').textContent = 'DeepSeek girişi bekleniyor';
         document.querySelector('#status-message').textContent = 'Açılan tarayıcı penceresinde giriş ve doğrulama adımlarını tamamlayın.';
+        document.querySelector('#status-hint').hidden = true;
+        document.querySelector('#status-code').hidden = true;
         activateStep(3);
         pollTimer = window.setInterval(refreshStatus, 900);
       } catch (error) {
-        showError(error.message);
+        showError(error.message, error.hint, error.errorCode);
       }
     });
 
@@ -254,7 +291,10 @@ const pageHTML = `<!doctype html>
       try {
         const response = await fetch(base + 'status', {cache: 'no-store', credentials: 'omit'});
         const status = await response.json();
-        if (status.phase === 'connecting') return;
+        if (status.phase === 'connecting') {
+          document.querySelector('#status-message').textContent = status.message;
+          return;
+        }
         window.clearInterval(pollTimer);
         document.querySelector('#status-card').dataset.phase = status.phase;
         document.querySelector('#status-message').textContent = status.message;
@@ -264,6 +304,10 @@ const pageHTML = `<!doctype html>
           activateStep(4);
         } else {
           document.querySelector('#status-title').textContent = 'Bağlantı kurulamadı';
+          document.querySelector('#status-hint').textContent = status.hint || '';
+          document.querySelector('#status-hint').hidden = !status.hint;
+          document.querySelector('#status-code').textContent = status.errorCode || '';
+          document.querySelector('#status-code').hidden = !status.errorCode;
           document.querySelector('#retry').hidden = false;
           activateStep(3);
         }
@@ -273,12 +317,25 @@ const pageHTML = `<!doctype html>
     };
 
     document.querySelector('#retry').addEventListener('click', async () => {
-      await post('reset');
-      document.querySelector('#retry').hidden = true;
-      statusView.hidden = true;
-      codeView.hidden = false;
-      codeInput.focus();
-      activateStep(1);
+      try {
+        const response = await fetch(base + 'status', {cache: 'no-store', credentials: 'omit'});
+        const status = await response.json().catch(() => ({}));
+        if (status.candidateId) {
+          document.querySelector('#retry').hidden = true;
+          document.querySelector('#status-hint').hidden = true;
+          document.querySelector('#status-code').hidden = true;
+          showConfirm(status);
+          return;
+        }
+        await post('reset');
+        document.querySelector('#retry').hidden = true;
+        statusView.hidden = true;
+        codeView.hidden = false;
+        codeInput.focus();
+        activateStep(1);
+      } catch (error) {
+        showError(error.message, error.hint, error.errorCode);
+      }
     });
 
     document.querySelector('#close').addEventListener('click', async () => {
@@ -286,6 +343,26 @@ const pageHTML = `<!doctype html>
       window.close();
       document.querySelector('#status-message').textContent = 'Connector kapatıldı. Bu sekmeyi kapatabilirsiniz.';
     });
+
+    const hydrate = async () => {
+      try {
+        const response = await fetch(base + 'status', {cache: 'no-store', credentials: 'omit'});
+        const status = await response.json();
+        if (status.phase === 'confirm') {
+          showConfirm(status);
+        } else if (status.phase === 'error') {
+          showError(status.message, status.hint, status.errorCode);
+        }
+      } catch {
+        showError(
+          'Connector yerel durumunu okuyamadı.',
+          'Connector uygulamasını kapatıp yeniden açın.',
+          'LOCAL_STATUS_UNAVAILABLE'
+        );
+      }
+    };
+
+    void hydrate();
   </script>
 </body>
 </html>`

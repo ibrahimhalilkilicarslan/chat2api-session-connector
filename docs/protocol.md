@@ -22,9 +22,28 @@ The decoded JSON contains:
 }
 ```
 
-`expiresAt` is Unix time in milliseconds. The connector accepts at most ten
-minutes of remaining lifetime and the gateway currently issues five-minute
+`expiresAt` is Unix time in milliseconds. The connector accepts at most twelve
+minutes of remaining lifetime and the gateway currently issues ten-minute
 sessions.
+
+## Local launch handoff
+
+Windows and Linux register this per-user URL scheme on first launch:
+
+```text
+chat2api-connector://pair?code=<percent-encoded-native-capability>
+```
+
+The connector accepts only the exact `chat2api-connector` scheme, `pair` host,
+single `code` parameter, and no user info, extra path, fragment, or additional
+query parameter. It immediately validates the embedded native capability and
+clears the application argument reference before opening the loopback
+confirmation page.
+
+The launch URL is never sent to an HTTP endpoint, stored by the connector, or
+written to logs. The capability remains short-lived, transport-bound, and
+single-use. Manual code entry is retained for recovery and for macOS, where a
+native URL-event launcher is not included in this release.
 
 ## Completion request
 

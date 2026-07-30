@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ibrahimhalilkilicarslan/chat2api-session-connector/internal/diagnostic"
 	"github.com/ibrahimhalilkilicarslan/chat2api-session-connector/internal/pairing"
 )
 
@@ -56,6 +57,29 @@ func TestInspectReturnsOnlySanitizedCapabilityMetadata(t *testing.T) {
 	}
 }
 
+func TestInspectRejectsInvalidCapabilityWithActionableJSON(t *testing.T) {
+	instance := testServer(t)
+	request := request(t, http.MethodPost, instance.basePath+"inspect", `{"code":"not-a-capability"}`)
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Origin", instance.origin)
+	recorder := httptest.NewRecorder()
+	instance.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d body = %s", recorder.Code, recorder.Body.String())
+	}
+	var status statusView
+	if err := json.Unmarshal(recorder.Body.Bytes(), &status); err != nil {
+		t.Fatalf("response is not JSON: %v", err)
+	}
+	if status.Phase != "error" || status.ErrorCode != "PAIRING_CODE_INVALID" || status.Hint == "" {
+		t.Fatalf("status = %#v", status)
+	}
+	if strings.Contains(recorder.Body.String(), "not-a-capability") {
+		t.Fatal("inspect response leaked rejected capability")
+	}
+}
+
 func TestPageUsesNonceCSPAndDoesNotEnableCORS(t *testing.T) {
 	instance := testServer(t)
 	request := request(t, http.MethodGet, instance.basePath, "")
@@ -77,11 +101,43 @@ func TestPageUsesNonceCSPAndDoesNotEnableCORS(t *testing.T) {
 	}
 }
 
+func TestConnectionFailureKeepsValidCapabilityForLocalRetry(t *testing.T) {
+	instance := testServer(t)
+	payload, err := pairing.Parse(testCapability(t), time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	instance.connecting = true
+	instance.connect = func(context.Context, pairing.Payload, ProgressFunc) (string, error) {
+		return "Test Browser", diagnostic.New(
+			"BROWSER_LAUNCH_FAILED",
+			"DeepSeek giriş penceresi açılamadı.",
+			"Tarayıcıyı kontrol edin.",
+		)
+	}
+
+	instance.runConnection(payload)
+
+	if instance.status.Phase != "error" ||
+		instance.status.ErrorCode != "BROWSER_LAUNCH_FAILED" ||
+		instance.status.CandidateID == "" ||
+		instance.candidate == nil {
+		t.Fatalf("status = %#v candidate = %#v", instance.status, instance.candidate)
+	}
+	serialized, err := json.Marshal(instance.status)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(serialized), payload.Secret) {
+		t.Fatal("retry status leaked capability secret")
+	}
+}
+
 func testServer(t *testing.T) *server {
 	t.Helper()
 	return &server{
 		status: statusView{Phase: "idle"},
-		connect: func(context.Context, pairing.Payload) (string, error) {
+		connect: func(context.Context, pairing.Payload, ProgressFunc) (string, error) {
 			return "Test Browser", nil
 		},
 		origin:      "http://127.0.0.1:41883",

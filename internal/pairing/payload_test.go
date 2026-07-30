@@ -43,7 +43,7 @@ func TestParseRejectsUnsafeCapabilities(t *testing.T) {
 			value.ExpiresAt = now.Add(-time.Second).UnixMilli()
 		},
 		"too long": func(value *Payload) {
-			value.ExpiresAt = now.Add(11 * time.Minute).UnixMilli()
+			value.ExpiresAt = now.Add(13 * time.Minute).UnixMilli()
 		},
 		"wrong transport": func(value *Payload) {
 			value.Transport = "browser-extension"

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ibrahimhalilkilicarslan/chat2api-session-connector/internal/diagnostic"
 	"github.com/ibrahimhalilkilicarslan/chat2api-session-connector/internal/pairing"
 )
 
@@ -51,7 +52,11 @@ func NewWithHTTPClient(version string, httpClient *http.Client) *Client {
 func (client *Client) Complete(ctx context.Context, payload pairing.Payload, token string) error {
 	token = strings.TrimSpace(token)
 	if len(token) == 0 || len(token) > 16_384 {
-		return errors.New("DeepSeek oturum bilgisi geçersiz")
+		return diagnostic.New(
+			"TOKEN_INVALID",
+			"DeepSeek oturum bilgisi alınamadı.",
+			"DeepSeek hesabında girişin tamamlandığını doğrulayıp yeni bir bağlantı başlatın.",
+		)
 	}
 	if err := payload.Validate(time.Now()); err != nil {
 		return err
@@ -77,14 +82,22 @@ func (client *Client) Complete(ctx context.Context, payload pairing.Payload, tok
 
 	response, err := client.httpClient.Do(request)
 	if err != nil {
-		return errors.New("gateway bağlantısı kurulamadı")
+		return diagnostic.New(
+			"GATEWAY_UNREACHABLE",
+			"Chat2API gateway'ine bağlanılamadı.",
+			"İnternet bağlantısını ve Chat2API adresinin tarayıcıdan açıldığını kontrol edip yeni bir bağlantı başlatın.",
+		)
 	}
 	defer response.Body.Close()
 
 	decoded := completionResponse{}
 	reader := io.LimitReader(response.Body, maxResponseBytes)
 	if err := json.NewDecoder(reader).Decode(&decoded); err != nil {
-		return errors.New("gateway geçerli bir yanıt vermedi")
+		return diagnostic.New(
+			"GATEWAY_RESPONSE_INVALID",
+			"Chat2API gateway'i geçerli bir yanıt vermedi.",
+			"Gateway'in güncel ve erişilebilir olduğunu kontrol edin.",
+		)
 	}
 	if response.StatusCode >= 200 && response.StatusCode < 300 && decoded.Status == "complete" {
 		return nil
@@ -92,14 +105,34 @@ func (client *Client) Complete(ctx context.Context, payload pairing.Payload, tok
 	if decoded.Error != nil {
 		switch decoded.Error.Code {
 		case "invalid_link_session":
-			return errors.New("bağlantı kodu geçersiz veya süresi dolmuş")
+			return diagnostic.New(
+				"LINK_EXPIRED",
+				"Bağlantı oturumunun süresi dolmuş veya oturum kullanılmış.",
+				"Chat2API panelinden yeni bir bağlantı başlatın.",
+			)
 		case "link_session_busy":
-			return errors.New("bu bağlantı başka bir doğrulama işlemi tarafından kullanılıyor")
+			return diagnostic.New(
+				"LINK_BUSY",
+				"Bu bağlantı başka bir doğrulama işlemi tarafından kullanılıyor.",
+				"Devam eden connector penceresini tamamlayın veya Chat2API panelinden yeni bağlantı başlatın.",
+			)
 		case "credential_validation_failed":
-			return errors.New("DeepSeek oturumu doğrulanamadı")
+			return diagnostic.New(
+				"SESSION_REJECTED",
+				"DeepSeek oturumu doğrulanamadı.",
+				"DeepSeek hesabından çıkış yapıp connector'ın açtığı pencerede yeniden giriş yapın.",
+			)
 		case "provider_unavailable":
-			return errors.New("DeepSeek sağlayıcısı gateway üzerinde kullanılamıyor")
+			return diagnostic.New(
+				"PROVIDER_UNAVAILABLE",
+				"DeepSeek sağlayıcısı Chat2API üzerinde kullanılamıyor.",
+				"Chat2API sağlayıcı ayarlarını kontrol edin.",
+			)
 		}
 	}
-	return fmt.Errorf("gateway bağlantıyı reddetti (HTTP %d)", response.StatusCode)
+	return diagnostic.New(
+		"GATEWAY_REJECTED",
+		fmt.Sprintf("Chat2API gateway'i bağlantıyı reddetti (HTTP %d).", response.StatusCode),
+		"Chat2API panelinden yeni bir bağlantı oluşturup tekrar deneyin.",
+	)
 }

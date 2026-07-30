@@ -5,15 +5,18 @@ import (
 	"fmt"
 	"io"
 	"runtime"
+	"time"
 
 	"github.com/ibrahimhalilkilicarslan/chat2api-session-connector/internal/browser"
 	"github.com/ibrahimhalilkilicarslan/chat2api-session-connector/internal/gateway"
 	"github.com/ibrahimhalilkilicarslan/chat2api-session-connector/internal/pairing"
+	"github.com/ibrahimhalilkilicarslan/chat2api-session-connector/internal/protocol"
 	"github.com/ibrahimhalilkilicarslan/chat2api-session-connector/internal/ui"
 	"github.com/ibrahimhalilkilicarslan/chat2api-session-connector/internal/version"
 )
 
 func Run(ctx context.Context, args []string, stdout io.Writer) error {
+	options := ui.Options{}
 	if len(args) > 0 {
 		switch args[0] {
 		case "--version", "version":
@@ -22,26 +25,57 @@ func Run(ctx context.Context, args []string, stdout io.Writer) error {
 		case "doctor":
 			return doctor(stdout)
 		default:
-			return fmt.Errorf("desteklenmeyen komut: %s", args[0])
+			if len(args) != 1 || !pairing.IsLaunchURL(args[0]) {
+				return fmt.Errorf("desteklenmeyen connector komutu")
+			}
+			payload, err := pairing.ParseLaunchURL(args[0], time.Now())
+			args[0] = ""
+			if err != nil {
+				options.InitialError = err
+			} else {
+				options.InitialPayload = &payload
+			}
 		}
+	}
+	registration := protocol.Ensure()
+	if registration.Message != "" && options.InitialError == nil && !registration.Ready {
+		options.Notice = registration.Message
 	}
 
 	client := gateway.New(version.Version)
-	connect := func(connectContext context.Context, payload pairing.Payload) (string, error) {
+	connect := func(
+		connectContext context.Context,
+		payload pairing.Payload,
+		report ui.ProgressFunc,
+	) (string, error) {
+		report(ui.ConnectionProgress{
+			Stage:   "browser-discovery",
+			Message: "Desteklenen tarayıcı aranıyor.",
+		})
 		installed, err := browser.Find()
 		if err != nil {
 			return "", err
 		}
+		report(ui.ConnectionProgress{
+			Stage:       "provider-login",
+			Message:     installed.Name + " içinde güvenli DeepSeek oturumu açılıyor.",
+			BrowserName: installed.Name,
+		})
 		token, err := browser.CaptureToken(connectContext, installed)
 		if err != nil {
 			return installed.Name, err
 		}
+		report(ui.ConnectionProgress{
+			Stage:       "gateway-validation",
+			Message:     "DeepSeek oturumu Chat2API gateway'inde doğrulanıyor.",
+			BrowserName: installed.Name,
+		})
 		if err := client.Complete(connectContext, payload, token); err != nil {
 			return installed.Name, err
 		}
 		return installed.Name, nil
 	}
-	return ui.Run(ctx, connect, browser.OpenURL)
+	return ui.Run(ctx, connect, browser.OpenURL, options)
 }
 
 func doctor(stdout io.Writer) error {

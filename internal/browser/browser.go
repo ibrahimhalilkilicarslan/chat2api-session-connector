@@ -2,8 +2,6 @@ package browser
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -11,6 +9,7 @@ import (
 	"time"
 
 	"github.com/chromedp/chromedp"
+	"github.com/ibrahimhalilkilicarslan/chat2api-session-connector/internal/diagnostic"
 )
 
 const deepSeekURL = "https://chat.deepseek.com/"
@@ -25,7 +24,11 @@ func Find() (Installed, error) {
 		if isExecutable(custom) {
 			return Installed{Name: "Custom Chromium", Path: custom}, nil
 		}
-		return Installed{}, errors.New("CHAT2API_BROWSER_PATH çalıştırılabilir bir tarayıcı göstermiyor")
+		return Installed{}, diagnostic.New(
+			"BROWSER_PATH_INVALID",
+			"Seçilen tarayıcı çalıştırılamıyor.",
+			"CHAT2API_BROWSER_PATH değerini Chrome, Edge, Chromium veya Brave çalıştırılabilir dosyasına yönlendirin.",
+		)
 	}
 
 	for _, candidate := range candidates() {
@@ -41,20 +44,36 @@ func Find() (Installed, error) {
 			return Installed{Name: candidate.Name, Path: path}, nil
 		}
 	}
-	return Installed{}, errors.New("desteklenen Chrome, Edge, Chromium veya Brave tarayıcısı bulunamadı")
+	return Installed{}, diagnostic.New(
+		"BROWSER_NOT_FOUND",
+		"Desteklenen bir tarayıcı bulunamadı.",
+		"Chrome, Edge, Chromium veya Brave kurun; ardından connector'ı yeniden açın.",
+	)
 }
 
 func CaptureToken(ctx context.Context, installed Installed) (string, error) {
 	if !isExecutable(installed.Path) {
-		return "", errors.New("seçilen tarayıcı çalıştırılamıyor")
+		return "", diagnostic.New(
+			"BROWSER_NOT_EXECUTABLE",
+			installed.Name+" çalıştırılamıyor.",
+			"Tarayıcı kurulumunu onarın veya başka bir Chromium tabanlı tarayıcı kurun.",
+		)
 	}
 	profileDir, err := os.MkdirTemp("", "chat2api-deepseek-profile-*")
 	if err != nil {
-		return "", errors.New("geçici tarayıcı profili oluşturulamadı")
+		return "", diagnostic.New(
+			"TEMP_PROFILE_CREATE_FAILED",
+			"Güvenli geçici tarayıcı profili oluşturulamadı.",
+			"Disk alanını ve işletim sistemi geçici klasör izinlerini kontrol edin.",
+		)
 	}
 	if err := os.Chmod(profileDir, 0o700); err != nil && runtime.GOOS != "windows" {
 		_ = os.RemoveAll(profileDir)
-		return "", errors.New("geçici tarayıcı profili korunamadı")
+		return "", diagnostic.New(
+			"TEMP_PROFILE_PROTECTION_FAILED",
+			"Geçici tarayıcı profili güvenli izinlerle açılamadı.",
+			"Geçici klasör izinlerini kontrol edip connector'ı yeniden başlatın.",
+		)
 	}
 	defer removeProfile(profileDir)
 
@@ -79,7 +98,11 @@ func CaptureToken(ctx context.Context, installed Installed) (string, error) {
 	}()
 
 	if err := chromedp.Run(browserContext, chromedp.Navigate(deepSeekURL)); err != nil {
-		return "", errors.New("DeepSeek giriş sayfası açılamadı")
+		return "", diagnostic.New(
+			"BROWSER_LAUNCH_FAILED",
+			"DeepSeek giriş penceresi açılamadı.",
+			installed.Name+" süreçlerini kapatıp connector'ı yeniden deneyin. Sorun sürerse connector doctor komutunu çalıştırın.",
+		)
 	}
 
 	ticker := time.NewTicker(900 * time.Millisecond)
@@ -87,12 +110,20 @@ func CaptureToken(ctx context.Context, installed Installed) (string, error) {
 	for {
 		select {
 		case <-ctx.Done():
-			return "", errors.New("DeepSeek giriş süresi doldu veya işlem iptal edildi")
+			return "", diagnostic.New(
+				"LOGIN_TIMEOUT",
+				"DeepSeek girişi zamanında tamamlanamadı.",
+				"Chat2API'den yeni bir bağlantı başlatın ve açılan penceredeki giriş ile doğrulamayı tamamlayın.",
+			)
 		case <-ticker.C:
 			token, err := readToken(browserContext)
 			if err != nil {
 				if browserContext.Err() != nil {
-					return "", errors.New("tarayıcı bağlantısı kapandı")
+					return "", diagnostic.New(
+						"BROWSER_CLOSED",
+						"DeepSeek bağlantısı tamamlanmadan tarayıcı penceresi kapandı.",
+						"Yeni bir bağlantı başlatın ve hesap bağlanana kadar açılan pencereyi kapatmayın.",
+					)
 				}
 				continue
 			}
@@ -114,7 +145,11 @@ func readToken(ctx context.Context) (string, error) {
 		return "", err
 	}
 	if len(token) > 16_384 {
-		return "", fmt.Errorf("DeepSeek oturum bilgisi beklenen sınırı aşıyor")
+		return "", diagnostic.New(
+			"TOKEN_SIZE_INVALID",
+			"DeepSeek oturum bilgisi beklenen güvenli sınırı aşıyor.",
+			"DeepSeek oturumunu kapatıp yeni bir oturumla tekrar deneyin.",
+		)
 	}
 	return token, nil
 }

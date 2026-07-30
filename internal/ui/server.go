@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ibrahimhalilkilicarslan/chat2api-session-connector/internal/diagnostic"
 	"github.com/ibrahimhalilkilicarslan/chat2api-session-connector/internal/pairing"
 )
 
@@ -22,16 +23,32 @@ const (
 	idleLifetime    = 15 * time.Minute
 )
 
-type ConnectFunc func(context.Context, pairing.Payload) (string, error)
+type ConnectionProgress struct {
+	Stage       string
+	Message     string
+	BrowserName string
+}
+
+type ProgressFunc func(ConnectionProgress)
+type ConnectFunc func(context.Context, pairing.Payload, ProgressFunc) (string, error)
 type OpenURLFunc func(string) error
 
 type statusView struct {
 	Phase       string `json:"phase"`
 	Message     string `json:"message"`
+	Hint        string `json:"hint,omitempty"`
+	ErrorCode   string `json:"errorCode,omitempty"`
+	Stage       string `json:"stage,omitempty"`
 	GatewayHost string `json:"gatewayHost,omitempty"`
 	ExpiresAt   int64  `json:"expiresAt,omitempty"`
 	BrowserName string `json:"browserName,omitempty"`
 	CandidateID string `json:"candidateId,omitempty"`
+}
+
+type Options struct {
+	InitialPayload *pairing.Payload
+	InitialError   error
+	Notice         string
 }
 
 type candidate struct {
@@ -49,12 +66,13 @@ type server struct {
 	host         string
 	basePath     string
 	nonce        string
+	notice       string
 	rootContext  context.Context
 	shutdown     chan struct{}
 	shutdownOnce sync.Once
 }
 
-func Run(ctx context.Context, connect ConnectFunc, openURL OpenURLFunc) error {
+func Run(ctx context.Context, connect ConnectFunc, openURL OpenURLFunc, options Options) error {
 	if connect == nil || openURL == nil {
 		return errors.New("connector başlatılamadı")
 	}
@@ -83,8 +101,32 @@ func Run(ctx context.Context, connect ConnectFunc, openURL OpenURLFunc) error {
 		host:        listener.Addr().String(),
 		basePath:    "/session/" + sessionSecret + "/",
 		nonce:       nonce,
+		notice:      options.Notice,
 		rootContext: ctx,
 		shutdown:    make(chan struct{}),
+	}
+	if options.InitialError != nil {
+		errorCode, hint := diagnostic.Details(options.InitialError)
+		instance.status = statusView{
+			Phase:     "error",
+			Message:   options.InitialError.Error(),
+			Hint:      hint,
+			ErrorCode: errorCode,
+		}
+	}
+	if options.InitialPayload != nil {
+		candidateID, candidateError := randomValue(24)
+		if candidateError != nil {
+			return errors.New("bağlantı onayı hazırlanamadı")
+		}
+		instance.candidate = &candidate{id: candidateID, payload: *options.InitialPayload}
+		instance.status = statusView{
+			Phase:       "confirm",
+			Message:     "Gateway adresini kontrol edip bağlantıyı başlatın.",
+			GatewayHost: options.InitialPayload.GatewayHost(),
+			ExpiresAt:   options.InitialPayload.ExpiresAt,
+			CandidateID: candidateID,
+		}
 	}
 
 	httpServer := &http.Server{
@@ -163,14 +205,27 @@ func (instance *server) inspect(writer http.ResponseWriter, request *http.Reques
 	payload, err := pairing.Parse(body.Code, time.Now())
 	body.Code = ""
 	if err != nil {
-		instance.setStatus(statusView{Phase: "error", Message: err.Error()})
-		instance.writeStatus(writer)
+		errorCode, hint := diagnostic.Details(err)
+		status := statusView{
+			Phase:     "error",
+			Message:   err.Error(),
+			Hint:      hint,
+			ErrorCode: errorCode,
+		}
+		instance.setStatus(status)
+		writeJSON(writer, http.StatusBadRequest, status)
 		return
 	}
 	id, err := randomValue(24)
 	if err != nil {
-		instance.setStatus(statusView{Phase: "error", Message: "Bağlantı onayı hazırlanamadı."})
-		instance.writeStatus(writer)
+		status := statusView{
+			Phase:     "error",
+			Message:   "Bağlantı onayı hazırlanamadı.",
+			Hint:      "Connector'ı kapatıp yeniden açın.",
+			ErrorCode: "PAIRING_PREPARATION_FAILED",
+		}
+		instance.setStatus(status)
+		writeJSON(writer, http.StatusInternalServerError, status)
 		return
 	}
 
@@ -217,6 +272,7 @@ func (instance *server) startConnection(writer http.ResponseWriter, request *htt
 	instance.connecting = true
 	instance.status = statusView{
 		Phase:       "connecting",
+		Stage:       "starting",
 		Message:     "DeepSeek giriş penceresi açılıyor. Girişi bu pencerede tamamlayın.",
 		GatewayHost: payload.GatewayHost(),
 		ExpiresAt:   payload.ExpiresAt,
@@ -236,18 +292,46 @@ func (instance *server) runConnection(payload pairing.Payload) {
 	ctx, cancel := context.WithDeadline(instance.rootContext, deadline)
 	defer cancel()
 
-	browserName, err := instance.connect(ctx, payload)
+	report := func(progress ConnectionProgress) {
+		instance.mu.Lock()
+		if instance.connecting {
+			instance.status = statusView{
+				Phase:       "connecting",
+				Stage:       progress.Stage,
+				Message:     progress.Message,
+				GatewayHost: payload.GatewayHost(),
+				ExpiresAt:   payload.ExpiresAt,
+				BrowserName: progress.BrowserName,
+			}
+		}
+		instance.mu.Unlock()
+	}
+	browserName, err := instance.connect(ctx, payload, report)
+	retryCandidateID := ""
+	if err != nil && payload.Deadline().After(time.Now()) {
+		retryCandidateID, _ = randomValue(24)
+	}
 	instance.mu.Lock()
 	instance.connecting = false
 	if err != nil {
+		errorCode, hint := diagnostic.Details(err)
+		if retryCandidateID != "" {
+			instance.candidate = &candidate{id: retryCandidateID, payload: payload}
+		}
 		instance.status = statusView{
 			Phase:       "error",
 			Message:     err.Error(),
+			Hint:        hint,
+			ErrorCode:   errorCode,
 			GatewayHost: payload.GatewayHost(),
+			ExpiresAt:   payload.ExpiresAt,
+			BrowserName: browserName,
+			CandidateID: retryCandidateID,
 		}
 	} else {
 		instance.status = statusView{
 			Phase:       "complete",
+			Stage:       "complete",
 			Message:     "DeepSeek hesabı doğrulandı ve Chat2API hesabı oluşturuldu.",
 			GatewayHost: payload.GatewayHost(),
 			BrowserName: browserName,
@@ -343,6 +427,7 @@ func (instance *server) servePage(writer http.ResponseWriter) {
 	_ = pageTemplate.Execute(writer, map[string]string{
 		"BasePath": instance.basePath,
 		"Nonce":    instance.nonce,
+		"Notice":   instance.notice,
 	})
 }
 

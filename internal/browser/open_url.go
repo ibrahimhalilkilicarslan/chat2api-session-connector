@@ -1,9 +1,10 @@
 package browser
 
 import (
-	"fmt"
 	"os/exec"
 	"runtime"
+
+	"github.com/ibrahimhalilkilicarslan/chat2api-session-connector/internal/diagnostic"
 )
 
 func OpenURL(rawURL string) error {
@@ -17,7 +18,11 @@ func OpenURL(rawURL string) error {
 		command = exec.Command("xdg-open", rawURL)
 	}
 	if err := command.Start(); err != nil {
-		return fmt.Errorf("yerel arayüz varsayılan tarayıcıda açılamadı")
+		return diagnostic.New(
+			"LOCAL_UI_OPEN_FAILED",
+			"Connector arayüzü varsayılan tarayıcıda açılamadı.",
+			"Varsayılan tarayıcı ayarını kontrol edip connector'ı yeniden açın.",
+		)
 	}
 	return nil
 }

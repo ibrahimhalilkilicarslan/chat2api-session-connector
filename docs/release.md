@@ -9,6 +9,11 @@
 7. Sign and notarize both macOS application bundles.
 8. Publish immutable archives and checksums in a GitHub release.
 9. Update the Chat2API gateway connector manifest only after the release exists.
+10. On Windows, verify first-run per-user protocol registration and a
+    `chat2api-connector://pair` launch from a browser.
+11. On Linux, verify the `xdg-mime` handler and retain manual-code fallback.
+12. On macOS, verify manual pairing; this release does not claim native
+    custom-URL activation.
 
 The Linux archives are portable tarballs. A later release may add AppImage,
 `.deb`, and `.rpm` packaging without changing the connector protocol.
