@@ -183,7 +183,7 @@ const pageHTML = `<!doctype html>
     </section>
   </main>
   <script nonce="{{.Nonce}}">
-    const base = {{printf "%q" .BasePath}};
+    const base = {{.BasePath}};
     const codeView = document.querySelector('#code-view');
     const confirmView = document.querySelector('#confirm-view');
     const statusView = document.querySelector('#status-view');

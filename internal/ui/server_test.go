@@ -99,6 +99,66 @@ func TestPageUsesNonceCSPAndDoesNotEnableCORS(t *testing.T) {
 	if !strings.Contains(recorder.Body.String(), "Chat2API Session Connector") {
 		t.Fatal("connector page missing")
 	}
+	if !strings.Contains(
+		recorder.Body.String(),
+		`const base = "/session/local-test/";`,
+	) {
+		t.Fatalf("connector page rendered an invalid local API base: %s", recorder.Body.String())
+	}
+}
+
+func TestRunServesFunctionalLocalStatusEndpoint(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	openedURL := make(chan string, 1)
+	runError := make(chan error, 1)
+
+	go func() {
+		runError <- Run(
+			ctx,
+			func(context.Context, pairing.Payload, ProgressFunc) (string, error) {
+				return "Test Browser", nil
+			},
+			func(rawURL string) error {
+				openedURL <- rawURL
+				return nil
+			},
+			Options{},
+		)
+	}()
+
+	var rawURL string
+	select {
+	case rawURL = <-openedURL:
+	case <-time.After(3 * time.Second):
+		t.Fatal("loopback UI did not open")
+	}
+
+	response, err := http.Get(rawURL + "status")
+	if err != nil {
+		t.Fatalf("local status endpoint unavailable: %v", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("local status endpoint returned %d", response.StatusCode)
+	}
+	var status statusView
+	if err := json.NewDecoder(response.Body).Decode(&status); err != nil {
+		t.Fatalf("local status response is not JSON: %v", err)
+	}
+	if status.Phase != "idle" {
+		t.Fatalf("unexpected local status: %#v", status)
+	}
+
+	cancel()
+	select {
+	case err := <-runError:
+		if err != nil {
+			t.Fatalf("loopback UI shutdown failed: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("loopback UI did not stop")
+	}
 }
 
 func TestConnectionFailureKeepsValidCapabilityForLocalRetry(t *testing.T) {
