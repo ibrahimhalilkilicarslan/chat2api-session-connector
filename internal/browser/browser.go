@@ -2,6 +2,8 @@ package browser
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -16,14 +18,14 @@ import (
 
 const deepSeekURL = "https://chat.deepseek.com/"
 
-const tokenProbeExpression = `(async () => {
+const storedTokenExpression = `(() => {
 	const origin = globalThis.location?.origin;
 	if (origin !== "https://chat.deepseek.com") return {state: "empty", token: ""};
-	const token = globalThis.localStorage?.getItem("userToken")?.trim() ?? "";
-	if (!token) return {state: "empty", token: ""};
-	if (["null", "undefined", "false"].includes(token.toLowerCase())) {
-		return {state: "rejected", token: ""};
-	}
+	const stored = globalThis.localStorage?.getItem("userToken") ?? "";
+	return stored ? {state: "stored", token: stored} : {state: "empty", token: ""};
+})()`
+
+const tokenValidationExpression = `(async (token) => {
 	try {
 		const response = await fetch("/api/v0/users/current", {
 			method: "GET",
@@ -64,7 +66,7 @@ const tokenProbeExpression = `(async () => {
 	} catch {
 		return {state: "unavailable", token: ""};
 	}
-})()`
+})`
 
 type Installed struct {
 	Name string
@@ -290,12 +292,37 @@ type tokenProbe struct {
 }
 
 func readToken(ctx context.Context) (tokenProbe, error) {
-	var probe tokenProbe
+	var stored tokenProbe
 	if err := chromedp.Run(
 		ctx,
 		chromedp.Evaluate(
-			tokenProbeExpression,
-			&probe,
+			storedTokenExpression,
+			&stored,
+		),
+	); err != nil {
+		return tokenProbe{}, err
+	}
+
+	normalized, err := normalizeStoredToken(stored)
+	if err != nil || normalized.State != "stored" {
+		return normalized, err
+	}
+
+	encodedToken, err := json.Marshal(normalized.Token)
+	if err != nil {
+		return tokenProbe{}, diagnostic.New(
+			"TOKEN_INVALID",
+			"DeepSeek oturum bilgisi güvenli biçimde çözümlenemedi.",
+			"DeepSeek hesabından çıkış yapıp connector'ın açtığı pencerede yeniden giriş yapın.",
+		)
+	}
+	expression := fmt.Sprintf("(%s)(%s)", tokenValidationExpression, encodedToken)
+	var validated tokenProbe
+	if err := chromedp.Run(
+		ctx,
+		chromedp.Evaluate(
+			expression,
+			&validated,
 			func(parameters *cdpRuntime.EvaluateParams) *cdpRuntime.EvaluateParams {
 				return parameters.WithAwaitPromise(true)
 			},
@@ -303,14 +330,44 @@ func readToken(ctx context.Context) (tokenProbe, error) {
 	); err != nil {
 		return tokenProbe{}, err
 	}
-	if len(probe.Token) > 16_384 {
+	return validated, nil
+}
+
+func normalizeStoredToken(stored tokenProbe) (tokenProbe, error) {
+	if stored.State != "stored" {
+		return stored, nil
+	}
+
+	raw := strings.TrimSpace(stored.Token)
+	if len(raw) > 16_384 {
 		return tokenProbe{}, diagnostic.New(
 			"TOKEN_SIZE_INVALID",
 			"DeepSeek oturum bilgisi beklenen güvenli sınırı aşıyor.",
 			"DeepSeek oturumunu kapatıp yeni bir oturumla tekrar deneyin.",
 		)
 	}
-	return probe, nil
+	if raw == "" {
+		return tokenProbe{State: "empty"}, nil
+	}
+
+	token := raw
+	if strings.HasPrefix(raw, "{") {
+		var envelope struct {
+			Value string `json:"value"`
+		}
+		if err := json.Unmarshal([]byte(raw), &envelope); err != nil {
+			return tokenProbe{State: "rejected"}, nil
+		}
+		token = strings.TrimSpace(envelope.Value)
+	}
+
+	if token == "" || len(token) > 16_384 {
+		return tokenProbe{State: "rejected"}, nil
+	}
+	if value := strings.ToLower(token); value == "null" || value == "undefined" || value == "false" {
+		return tokenProbe{State: "rejected"}, nil
+	}
+	return tokenProbe{State: "stored", Token: token}, nil
 }
 
 func removeProfile(path string) {

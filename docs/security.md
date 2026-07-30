@@ -41,7 +41,11 @@ starts a supported installed browser with:
 - a hard operation timeout.
 
 Only the exact `https://chat.deepseek.com` origin is eligible for token
-extraction. The profile directory is removed after browser shutdown.
+extraction. The connector reads only `localStorage.userToken`, accepts the
+current versioned JSON envelope's string `value` field or a legacy plain token,
+and verifies the normalized value against DeepSeek's current-user endpoint.
+Other storage fields, cookies, passwords, and OTP values are never read. The
+profile directory is removed after browser shutdown.
 
 ## Gateway submission
 
