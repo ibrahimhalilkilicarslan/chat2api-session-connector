@@ -18,6 +18,12 @@ import (
 
 const deepSeekURL = "https://chat.deepseek.com/"
 
+const (
+	tokenPollInterval       = 900 * time.Millisecond
+	tokenValidationBackoff  = 5 * time.Second
+	maxStoredTokenSizeBytes = 16_384
+)
+
 const storedTokenExpression = `(() => {
 	const origin = globalThis.location?.origin;
 	if (origin !== "https://chat.deepseek.com") return {state: "empty", token: ""};
@@ -192,59 +198,14 @@ func CaptureToken(ctx context.Context, installed Installed) (string, error) {
 		)
 	}
 
-	ticker := time.NewTicker(900 * time.Millisecond)
-	defer ticker.Stop()
-	rejectedChecks := 0
-	unavailableChecks := 0
-	for {
-		select {
-		case <-ctx.Done():
-			return "", diagnostic.New(
-				"LOGIN_TIMEOUT",
-				"DeepSeek girişi zamanında tamamlanamadı.",
-				"Chat2API'den yeni bir bağlantı başlatın ve açılan penceredeki giriş ile doğrulamayı tamamlayın.",
-			)
-		case <-ticker.C:
-			probe, err := readToken(browserContext)
-			if err != nil {
-				if browserContext.Err() != nil {
-					return "", diagnostic.New(
-						"BROWSER_CLOSED",
-						"DeepSeek bağlantısı tamamlanmadan tarayıcı penceresi kapandı.",
-						"Yeni bir bağlantı başlatın ve hesap bağlanana kadar açılan pencereyi kapatmayın.",
-					)
-				}
-				continue
-			}
-			switch probe.State {
-			case "ready":
-				return probe.Token, nil
-			case "rejected":
-				rejectedChecks++
-				unavailableChecks = 0
-				if rejectedChecks >= 3 {
-					return "", diagnostic.New(
-						"SESSION_LOCAL_REJECTED",
-						"DeepSeek oturumu tarayıcı tarafından doğrulanamadı.",
-						"Bu pencerede DeepSeek hesabından çıkış yapıp yeniden giriş yapın; ardından Chat2API panelinden yeni bir bağlantı başlatın.",
-					)
-				}
-			case "unavailable":
-				unavailableChecks++
-				rejectedChecks = 0
-				if unavailableChecks >= 12 {
-					return "", diagnostic.New(
-						"SESSION_LOCAL_CHECK_FAILED",
-						"DeepSeek oturum kontrolü tamamlanamadı.",
-						"DeepSeek sayfasının tamamen açıldığını ve güvenlik yazılımının chat.deepseek.com isteklerini engellemediğini kontrol edin.",
-					)
-				}
-			default:
-				rejectedChecks = 0
-				unavailableChecks = 0
-			}
-		}
-	}
+	return waitForToken(
+		ctx,
+		browserContext,
+		tokenPollInterval,
+		tokenValidationBackoff,
+		readStoredToken,
+		validateToken,
+	)
 }
 
 func openDeepSeek(ctx context.Context) error {
@@ -291,7 +252,80 @@ type tokenProbe struct {
 	Token string `json:"token"`
 }
 
-func readToken(ctx context.Context) (tokenProbe, error) {
+type storedTokenReader func(context.Context) (tokenProbe, error)
+type tokenValidator func(context.Context, string) (tokenProbe, error)
+
+func waitForToken(
+	ctx context.Context,
+	browserContext context.Context,
+	pollInterval time.Duration,
+	validationBackoff time.Duration,
+	readStored storedTokenReader,
+	validate tokenValidator,
+) (string, error) {
+	ticker := time.NewTicker(pollInterval)
+	defer ticker.Stop()
+
+	lastCandidate := ""
+	nextValidation := time.Time{}
+	for {
+		select {
+		case <-ctx.Done():
+			return "", diagnostic.New(
+				"LOGIN_TIMEOUT",
+				"DeepSeek girişi zamanında tamamlanamadı.",
+				"Chat2API'den yeni bir bağlantı başlatın ve açılan penceredeki giriş ile doğrulamayı tamamlayın.",
+			)
+		case <-ticker.C:
+			stored, err := readStored(browserContext)
+			if err != nil {
+				if browserContext.Err() != nil {
+					return "", browserClosedError()
+				}
+				continue
+			}
+			if stored.State != "stored" || stored.Token == "" {
+				lastCandidate = ""
+				nextValidation = time.Time{}
+				continue
+			}
+
+			now := time.Now()
+			if stored.Token == lastCandidate && now.Before(nextValidation) {
+				continue
+			}
+
+			validated, err := validate(browserContext, stored.Token)
+			if err != nil {
+				if browserContext.Err() != nil {
+					return "", browserClosedError()
+				}
+				lastCandidate = stored.Token
+				nextValidation = now.Add(validationBackoff)
+				continue
+			}
+			if validated.State == "ready" {
+				return validated.Token, nil
+			}
+
+			// Human verification and sign-in redirects may briefly expose a
+			// stale or placeholder token. Keep the isolated browser open and
+			// retry when storage changes instead of terminating the login flow.
+			lastCandidate = stored.Token
+			nextValidation = now.Add(validationBackoff)
+		}
+	}
+}
+
+func browserClosedError() error {
+	return diagnostic.New(
+		"BROWSER_CLOSED",
+		"DeepSeek bağlantısı tamamlanmadan tarayıcı penceresi kapandı.",
+		"Yeni bir bağlantı başlatın ve hesap bağlanana kadar açılan pencereyi kapatmayın.",
+	)
+}
+
+func readStoredToken(ctx context.Context) (tokenProbe, error) {
 	var stored tokenProbe
 	if err := chromedp.Run(
 		ctx,
@@ -307,8 +341,11 @@ func readToken(ctx context.Context) (tokenProbe, error) {
 	if err != nil || normalized.State != "stored" {
 		return normalized, err
 	}
+	return normalized, nil
+}
 
-	encodedToken, err := json.Marshal(normalized.Token)
+func validateToken(ctx context.Context, token string) (tokenProbe, error) {
+	encodedToken, err := json.Marshal(token)
 	if err != nil {
 		return tokenProbe{}, diagnostic.New(
 			"TOKEN_INVALID",
@@ -339,7 +376,7 @@ func normalizeStoredToken(stored tokenProbe) (tokenProbe, error) {
 	}
 
 	raw := strings.TrimSpace(stored.Token)
-	if len(raw) > 16_384 {
+	if len(raw) > maxStoredTokenSizeBytes {
 		return tokenProbe{}, diagnostic.New(
 			"TOKEN_SIZE_INVALID",
 			"DeepSeek oturum bilgisi beklenen güvenli sınırı aşıyor.",
@@ -361,7 +398,7 @@ func normalizeStoredToken(stored tokenProbe) (tokenProbe, error) {
 		token = strings.TrimSpace(envelope.Value)
 	}
 
-	if token == "" || len(token) > 16_384 {
+	if token == "" || len(token) > maxStoredTokenSizeBytes {
 		return tokenProbe{State: "rejected"}, nil
 	}
 	if value := strings.ToLower(token); value == "null" || value == "undefined" || value == "false" {

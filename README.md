@@ -13,6 +13,8 @@ The connector:
 - reads only DeepSeek's `localStorage.userToken`, normalizes DeepSeek's current
   versioned `{ "value": "..." }` envelope with legacy plain-token
   compatibility, and verifies it against DeepSeek's current-user endpoint,
+- keeps the isolated login window open across human-verification redirects and
+  transient placeholder or rejected session values,
 - posts the token to the exact confirmed gateway endpoint, and
 - destroys the temporary browser profile when the operation ends.
 

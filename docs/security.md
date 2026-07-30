@@ -44,6 +44,9 @@ Only the exact `https://chat.deepseek.com` origin is eligible for token
 extraction. The connector reads only `localStorage.userToken`, accepts the
 current versioned JSON envelope's string `value` field or a legacy plain token,
 and verifies the normalized value against DeepSeek's current-user endpoint.
+Human-verification and sign-in redirects may temporarily expose rejected
+placeholder values; these are retried with a bounded backoff and never cause
+the isolated login window to close early.
 Other storage fields, cookies, passwords, and OTP values are never read. The
 profile directory is removed after browser shutdown.
 
