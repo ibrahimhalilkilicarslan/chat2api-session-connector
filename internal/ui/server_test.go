@@ -109,6 +109,7 @@ func TestPageUsesNonceCSPAndDoesNotEnableCORS(t *testing.T) {
 
 func TestStandaloneInstallPageGuidesUserBackToChat2API(t *testing.T) {
 	instance := testServer(t)
+	instance.standaloneLaunch = true
 	instance.installationReady = true
 	instance.version = "0.2.0"
 	request := request(t, http.MethodGet, instance.basePath, "")
@@ -125,12 +126,41 @@ func TestStandaloneInstallPageGuidesUserBackToChat2API(t *testing.T) {
 		"Connector ile bağlan",
 		"Manuel bağlantı kodum var",
 		`id="connection-flow" hidden`,
-		"const installationReady = !installView.hidden;",
+		"const standaloneLaunch = !installView.hidden;",
 		"Connector 0.2.0",
 	} {
 		if !strings.Contains(body, expected) {
 			t.Fatalf("standalone installation page missing %q", expected)
 		}
+	}
+}
+
+func TestStandaloneInstallFailureShowsRepairGuideInsteadOfCodeForm(t *testing.T) {
+	instance := testServer(t)
+	instance.standaloneLaunch = true
+	instance.notice = "Connector bağlantı protokolü kaydedilemedi."
+	request := request(t, http.MethodGet, instance.basePath, "")
+	recorder := httptest.NewRecorder()
+	instance.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d", recorder.Code)
+	}
+	body := recorder.Body.String()
+	for _, expected := range []string{
+		"Connector kurulumu tamamlanamadı",
+		"Bağlantı protokolünü onarın",
+		"Connector bağlantı protokolü kaydedilemedi.",
+		`id="install-view"`,
+		`id="connection-flow" hidden`,
+		"Manuel bağlantı kodum var",
+	} {
+		if !strings.Contains(body, expected) {
+			t.Fatalf("standalone repair page missing %q", expected)
+		}
+	}
+	if strings.Contains(body, `id="install-view" hidden`) {
+		t.Fatal("standalone repair guide was hidden")
 	}
 }
 

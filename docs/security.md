@@ -5,7 +5,8 @@
 The connector handles two short-lived secrets in memory:
 
 1. the one-time gateway pairing capability;
-2. the DeepSeek web session token read after an explicit login.
+2. the DeepSeek web session token read after an explicit login and a successful
+   current-user check inside the temporary browser.
 
 Neither value is written to disk, command output, application logs, crash
 reports, HTTP URLs, or the local status page.

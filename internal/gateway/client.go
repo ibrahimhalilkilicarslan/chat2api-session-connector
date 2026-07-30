@@ -33,6 +33,9 @@ type completionResponse struct {
 	Error  *struct {
 		Code    string `json:"code"`
 		Message string `json:"message"`
+		Details struct {
+			Reason string `json:"reason"`
+		} `json:"details"`
 	} `json:"error"`
 }
 
@@ -117,6 +120,26 @@ func (client *Client) Complete(ctx context.Context, payload pairing.Payload, tok
 				"Devam eden connector penceresini tamamlayın veya Chat2API panelinden yeni bağlantı başlatın.",
 			)
 		case "credential_validation_failed":
+			switch decoded.Error.Details.Reason {
+			case "provider_rate_limited":
+				return diagnostic.New(
+					"PROVIDER_RATE_LIMITED",
+					"DeepSeek oturumu geçerli ancak sağlayıcı şu anda yoğun.",
+					"Birkaç dakika bekleyip Chat2API panelinden yeni bir bağlantı başlatın.",
+				)
+			case "provider_protocol_changed":
+				return diagnostic.New(
+					"PROVIDER_PROTOCOL_CHANGED",
+					"DeepSeek oturum yanıtı güvenli biçimde doğrulanamadı.",
+					"Connector ve Chat2API gateway sürümlerinin güncel olduğunu kontrol edin.",
+				)
+			case "provider_unavailable":
+				return diagnostic.New(
+					"PROVIDER_UNAVAILABLE",
+					"DeepSeek oturum kontrolüne şu anda ulaşılamıyor.",
+					"Birkaç dakika bekleyip yeniden deneyin; sorun sürerse gateway ağ erişimini kontrol edin.",
+				)
+			}
 			return diagnostic.New(
 				"SESSION_REJECTED",
 				"DeepSeek oturumu doğrulanamadı.",

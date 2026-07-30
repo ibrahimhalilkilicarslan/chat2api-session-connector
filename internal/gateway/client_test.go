@@ -85,6 +85,29 @@ func TestCompleteDoesNotEchoRejectedToken(t *testing.T) {
 	}
 }
 
+func TestCompleteMapsSafeGatewayValidationReason(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		writer.WriteHeader(http.StatusUnprocessableEntity)
+		_, _ = writer.Write([]byte(
+			`{"error":{"code":"credential_validation_failed","message":"Provider session response could not be verified.","details":{"reason":"provider_protocol_changed"}}}`,
+		))
+	}))
+	defer server.Close()
+
+	err := New("test").Complete(
+		context.Background(),
+		validPayload(server.URL+"/admin/api/deepseek-link/native-complete"),
+		"private-token-value",
+	)
+	if err == nil {
+		t.Fatal("Complete() unexpectedly succeeded")
+	}
+	if !strings.Contains(err.Error(), "DeepSeek oturum yanıtı") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func validPayload(endpoint string) pairing.Payload {
 	return pairing.Payload{
 		Version:   1,

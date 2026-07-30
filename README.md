@@ -10,7 +10,8 @@ The connector:
 - launches an installed Chrome, Edge, Chromium, or Brave browser with an
   isolated temporary profile,
 - waits for the operator to sign in directly on DeepSeek,
-- reads only DeepSeek's `localStorage.userToken`,
+- reads only DeepSeek's `localStorage.userToken` after DeepSeek's current-user
+  endpoint accepts it in the temporary browser,
 - posts the token to the exact confirmed gateway endpoint, and
 - destroys the temporary browser profile when the operation ends.
 

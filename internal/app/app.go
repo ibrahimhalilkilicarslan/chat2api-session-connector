@@ -17,7 +17,10 @@ import (
 
 func Run(ctx context.Context, args []string, stdout io.Writer) error {
 	standaloneLaunch := len(args) == 0
-	options := ui.Options{Version: version.Version}
+	options := ui.Options{
+		StandaloneLaunch: standaloneLaunch,
+		Version:          version.Version,
+	}
 	if len(args) > 0 {
 		switch args[0] {
 		case "--version", "version":
@@ -39,7 +42,7 @@ func Run(ctx context.Context, args []string, stdout io.Writer) error {
 		}
 	}
 	registration := protocol.Ensure()
-	options.InstallationReady = standaloneLaunch && registration.Ready
+	options.InstallationReady = registration.Ready
 	if registration.Message != "" && options.InitialError == nil && !registration.Ready {
 		options.Notice = registration.Message
 	}

@@ -9,11 +9,62 @@ import (
 	"time"
 
 	"github.com/chromedp/cdproto/page"
+	cdpRuntime "github.com/chromedp/cdproto/runtime"
 	"github.com/chromedp/chromedp"
 	"github.com/ibrahimhalilkilicarslan/chat2api-session-connector/internal/diagnostic"
 )
 
 const deepSeekURL = "https://chat.deepseek.com/"
+
+const tokenProbeExpression = `(async () => {
+	const origin = globalThis.location?.origin;
+	if (origin !== "https://chat.deepseek.com") return {state: "empty", token: ""};
+	const token = globalThis.localStorage?.getItem("userToken")?.trim() ?? "";
+	if (!token) return {state: "empty", token: ""};
+	if (["null", "undefined", "false"].includes(token.toLowerCase())) {
+		return {state: "rejected", token: ""};
+	}
+	try {
+		const response = await fetch("/api/v0/users/current", {
+			method: "GET",
+			cache: "no-store",
+			credentials: "omit",
+			headers: {
+				Accept: "application/json",
+				Authorization: "Bearer " + token
+			}
+		});
+		const payload = await response.json().catch(() => null);
+		const root = payload && typeof payload === "object" ? payload : {};
+		const data = root.data && typeof root.data === "object" ? root.data : {};
+		const businessData = data.biz_data && typeof data.biz_data === "object"
+			? data.biz_data
+			: root.biz_data && typeof root.biz_data === "object"
+				? root.biz_data
+				: null;
+		if (
+			response.status === 401
+			|| response.status === 403
+			|| root.code === 40003
+			|| data.biz_code === 40003
+		) {
+			return {state: "rejected", token: ""};
+		}
+		const acceptedCodes = (root.code === undefined || root.code === 0)
+			&& (data.biz_code === undefined || data.biz_code === 0);
+		if (
+			response.ok
+			&& acceptedCodes
+			&& typeof businessData?.token === "string"
+			&& businessData.token.length > 0
+		) {
+			return {state: "ready", token};
+		}
+		return {state: "unavailable", token: ""};
+	} catch {
+		return {state: "unavailable", token: ""};
+	}
+})()`
 
 type Installed struct {
 	Name string
@@ -141,6 +192,8 @@ func CaptureToken(ctx context.Context, installed Installed) (string, error) {
 
 	ticker := time.NewTicker(900 * time.Millisecond)
 	defer ticker.Stop()
+	rejectedChecks := 0
+	unavailableChecks := 0
 	for {
 		select {
 		case <-ctx.Done():
@@ -150,7 +203,7 @@ func CaptureToken(ctx context.Context, installed Installed) (string, error) {
 				"Chat2API'den yeni bir bağlantı başlatın ve açılan penceredeki giriş ile doğrulamayı tamamlayın.",
 			)
 		case <-ticker.C:
-			token, err := readToken(browserContext)
+			probe, err := readToken(browserContext)
 			if err != nil {
 				if browserContext.Err() != nil {
 					return "", diagnostic.New(
@@ -161,8 +214,32 @@ func CaptureToken(ctx context.Context, installed Installed) (string, error) {
 				}
 				continue
 			}
-			if token != "" {
-				return token, nil
+			switch probe.State {
+			case "ready":
+				return probe.Token, nil
+			case "rejected":
+				rejectedChecks++
+				unavailableChecks = 0
+				if rejectedChecks >= 3 {
+					return "", diagnostic.New(
+						"SESSION_LOCAL_REJECTED",
+						"DeepSeek oturumu tarayıcı tarafından doğrulanamadı.",
+						"Bu pencerede DeepSeek hesabından çıkış yapıp yeniden giriş yapın; ardından Chat2API panelinden yeni bir bağlantı başlatın.",
+					)
+				}
+			case "unavailable":
+				unavailableChecks++
+				rejectedChecks = 0
+				if unavailableChecks >= 12 {
+					return "", diagnostic.New(
+						"SESSION_LOCAL_CHECK_FAILED",
+						"DeepSeek oturum kontrolü tamamlanamadı.",
+						"DeepSeek sayfasının tamamen açıldığını ve güvenlik yazılımının chat.deepseek.com isteklerini engellemediğini kontrol edin.",
+					)
+				}
+			default:
+				rejectedChecks = 0
+				unavailableChecks = 0
 			}
 		}
 	}
@@ -207,24 +284,33 @@ func launchOptions(installed Installed, profileDir string) []chromedp.ExecAlloca
 	)
 }
 
-func readToken(ctx context.Context) (string, error) {
-	const expression = `(() => {
-		if (globalThis.location?.origin !== "https://chat.deepseek.com") return "";
-		const token = globalThis.localStorage?.getItem("userToken");
-		return typeof token === "string" ? token.trim() : "";
-	})()`
-	var token string
-	if err := chromedp.Run(ctx, chromedp.Evaluate(expression, &token)); err != nil {
-		return "", err
+type tokenProbe struct {
+	State string `json:"state"`
+	Token string `json:"token"`
+}
+
+func readToken(ctx context.Context) (tokenProbe, error) {
+	var probe tokenProbe
+	if err := chromedp.Run(
+		ctx,
+		chromedp.Evaluate(
+			tokenProbeExpression,
+			&probe,
+			func(parameters *cdpRuntime.EvaluateParams) *cdpRuntime.EvaluateParams {
+				return parameters.WithAwaitPromise(true)
+			},
+		),
+	); err != nil {
+		return tokenProbe{}, err
 	}
-	if len(token) > 16_384 {
-		return "", diagnostic.New(
+	if len(probe.Token) > 16_384 {
+		return tokenProbe{}, diagnostic.New(
 			"TOKEN_SIZE_INVALID",
 			"DeepSeek oturum bilgisi beklenen güvenli sınırı aşıyor.",
 			"DeepSeek oturumunu kapatıp yeni bir oturumla tekrar deneyin.",
 		)
 	}
-	return token, nil
+	return probe, nil
 }
 
 func removeProfile(path string) {

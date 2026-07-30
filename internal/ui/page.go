@@ -155,9 +155,14 @@ const pageHTML = `<!doctype html>
     <section class="card">
       <div class="hero">
         <div class="eyebrow">Yerel ve güvenli bağlantı</div>
-        {{if .InstallationReady}}
+        {{if .StandaloneLaunch}}
+          {{if .InstallationReady}}
         <h1>Connector kullanıma hazır</h1>
         <p>Kurulum tamamlandı. Hesap bağlantısını Chat2API panelinden başlattığınızda connector gerekli adımları otomatik olarak açacak.</p>
+          {{else}}
+        <h1>Connector kurulumu tamamlanamadı</h1>
+        <p>Bağlantı protokolü kaydedilemedi. Aşağıdaki onarım adımlarını uygulayın; bağlantı kodu yalnız yedek yöntemdir.</p>
+          {{end}}
         {{else}}
         <h1>DeepSeek hesabınızı bağlayın</h1>
         <p>Giriş doğrudan DeepSeek üzerinde tamamlanır. Connector parola veya doğrulama kodunuzu görmez; yalnız doğrulanmış oturum bilgisini seçtiğiniz Chat2API gateway’ine iletir.</p>
@@ -165,8 +170,9 @@ const pageHTML = `<!doctype html>
       </div>
       <div class="content">
         {{if .Notice}}<div class="notice">{{.Notice}}</div>{{end}}
-        <section class="install-success" id="install-view" {{if .InstallationReady}}{{else}}hidden{{end}}>
-          <div class="success-mark" aria-hidden="true">✓</div>
+        <section class="install-success" id="install-view" {{if .StandaloneLaunch}}{{else}}hidden{{end}}>
+          <div class="success-mark" aria-hidden="true">{{if .InstallationReady}}✓{{else}}!{{end}}</div>
+          {{if .InstallationReady}}
           <h2>Kurulum tamamlandı</h2>
           <p>Bu uygulamada kod aramanıza gerek yok. Bağlantı işlemini Chat2API yönetim panelinden başlatın.</p>
           <ol class="guide">
@@ -174,14 +180,23 @@ const pageHTML = `<!doctype html>
             <li><span><strong>DeepSeek hesabı ekle</strong> alanından “Connector ile bağlan” seçeneğini kullanın.</span></li>
             <li><span>Açılan güvenli DeepSeek penceresinde girişinizi tamamlayın. Oturum otomatik olarak hesabınıza bağlanır.</span></li>
           </ol>
+          {{else}}
+          <h2>Bağlantı protokolünü onarın</h2>
+          <p>Connector’ın başka bir kopyası açıksa kapatın ve indirdiğiniz uygulamayı bir kez daha çalıştırın.</p>
+          <ol class="guide">
+            <li><span>Açık <strong>Chat2API Connector</strong> pencerelerinin tamamını kapatın.</span></li>
+            <li><span>İndirdiğiniz connector uygulamasını yeniden çalıştırın ve “Kurulum tamamlandı” ekranını bekleyin.</span></li>
+            <li><span>Chat2API paneline dönüp <strong>Connector ile bağlan</strong> seçeneğini yeniden kullanın.</span></li>
+          </ol>
+          {{end}}
           <div class="actions install-actions">
-            <button id="finish-install" type="button">Tamam, Chat2API’ye dön</button>
+            <button id="finish-install" type="button">{{if .InstallationReady}}Tamam, Chat2API’ye dön{{else}}Connector’ı kapat{{end}}</button>
             <button id="manual-code" type="button" class="secondary">Manuel bağlantı kodum var</button>
           </div>
           {{if .Version}}<small class="version">Connector {{.Version}}</small>{{end}}
         </section>
 
-        <div id="connection-flow" {{if .InstallationReady}}hidden{{end}}>
+        <div id="connection-flow" {{if .StandaloneLaunch}}hidden{{end}}>
           <div class="steps">
             <div class="step active" id="step-code"><i>1</i><span>Kod</span></div><b></b>
             <div class="step" id="step-confirm"><i>2</i><span>Onay</span></div><b></b>
@@ -235,7 +250,7 @@ const pageHTML = `<!doctype html>
     const base = {{.BasePath}};
     const installView = document.querySelector('#install-view');
     const connectionFlow = document.querySelector('#connection-flow');
-    const installationReady = !installView.hidden;
+    const standaloneLaunch = !installView.hidden;
     const codeView = document.querySelector('#code-view');
     const confirmView = document.querySelector('#confirm-view');
     const statusView = document.querySelector('#status-view');
@@ -433,7 +448,7 @@ const pageHTML = `<!doctype html>
       }
     };
 
-    if (!installationReady) {
+    if (!standaloneLaunch) {
       void hydrate();
     }
   </script>

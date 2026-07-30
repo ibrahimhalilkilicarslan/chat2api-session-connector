@@ -49,6 +49,7 @@ type Options struct {
 	InitialPayload    *pairing.Payload
 	InitialError      error
 	Notice            string
+	StandaloneLaunch  bool
 	InstallationReady bool
 	Version           string
 }
@@ -69,6 +70,7 @@ type server struct {
 	basePath          string
 	nonce             string
 	notice            string
+	standaloneLaunch  bool
 	installationReady bool
 	version           string
 	rootContext       context.Context
@@ -106,6 +108,7 @@ func Run(ctx context.Context, connect ConnectFunc, openURL OpenURLFunc, options 
 		basePath:          "/session/" + sessionSecret + "/",
 		nonce:             nonce,
 		notice:            options.Notice,
+		standaloneLaunch:  options.StandaloneLaunch,
 		installationReady: options.InstallationReady,
 		version:           options.Version,
 		rootContext:       ctx,
@@ -434,12 +437,14 @@ func (instance *server) servePage(writer http.ResponseWriter) {
 		BasePath          string
 		Nonce             string
 		Notice            string
+		StandaloneLaunch  bool
 		InstallationReady bool
 		Version           string
 	}{
 		BasePath:          instance.basePath,
 		Nonce:             instance.nonce,
 		Notice:            instance.notice,
+		StandaloneLaunch:  instance.standaloneLaunch,
 		InstallationReady: instance.installationReady,
 		Version:           instance.version,
 	})
