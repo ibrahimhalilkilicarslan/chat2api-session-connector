@@ -4,3 +4,7 @@
 *.log
 .DS_Store
 Thumbs.db
+.codex/
+.claude/
+.agents/
+CLAUDE.md

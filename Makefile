@@ -1,7 +1,7 @@
 GO ?= go
 VERSION ?= 0.2.0
 
-.PHONY: fmt vet test vuln build check release clean
+.PHONY: fmt vet test vuln build hygiene check release clean
 
 fmt:
 	$(GO) fmt ./...
@@ -21,7 +21,10 @@ build:
 		-ldflags "-s -w -X github.com/ibrahimhalilkilicarslan/chat2api-session-connector/internal/version.Version=$(VERSION)" \
 		-o bin/chat2api-connector ./cmd/chat2api-connector
 
-check: fmt vet test vuln build
+hygiene:
+	./scripts/public-hygiene.sh
+
+check: fmt vet test vuln build hygiene
 	git diff --check
 
 release:
